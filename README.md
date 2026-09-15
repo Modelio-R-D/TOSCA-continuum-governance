@@ -7,23 +7,20 @@ pip install pyyaml pyvis
 python tools/tosca_audit.py topologies/grid5000/toulouse.yaml --format html
 ```
 
-A lightweight Python toolchain that treats a **TOSCA YAML file as a queryable knowledge base** about your computing continuum — detecting scheduling risks, memory constraints, accelerator single points of failure, and ARM 32/64-bit incompatibilities *before* you deploy a single workload.
+A lightweight Python toolchain that treats a **TOSCA YAML file as a queryable knowledge base** about your computing continuum,  detecting scheduling risks, memory constraints, accelerator single points of failure, and ARM 32/64-bit incompatibilities *before* you deploy a single workload.
 
 ---
 
 ## Why this exists
 
-Managing heterogeneous computing continuums — cloud servers, edge nodes, FPGA boards, NPU accelerators — is hard. Container images fail silently on wrong architectures. K3s schedulers place pods on 512 MiB nodes that immediately OOM. A single NPU becomes a SPOF for your entire inference pipeline.
+Managing heterogeneous computing continuums, cloud servers, edge nodes, FPGA boards, NPU accelerators , is hard. Container images fail silently on wrong architectures. K3s schedulers place pods on 512 MiB nodes that immediately OOM. A single NPU becomes a SPOF for your entire inference pipeline.
 
 **TOSCA** (Topology and Orchestration Specification for Cloud Applications) can describe all of this in a single YAML file. This toolchain makes that file *actionable*.
  
 
 ### Quick start
 
-```bash
-git clone https://github.com/alebagnato/tosca-continuum-governance
-cd tosca-continuum-governance
-pip install -r requirements.txt
+ 
 
 # Audit your topology
 python tools/tosca_audit.py topologies/continuum/clusters_topology.yaml
@@ -121,7 +118,7 @@ and enriched CSAR export. Developed by Softeam R&D as part of the
 | Interface | Graphical (Modelio UML) | Command-line / Python |
 | Input | Visual diagram → TOSCA YAML | TOSCA YAML directly |
 | Focus | Design-time modeling, constraint authoring, CSAR export | Static risk analysis, CI/CD integration |
-| Output | `.tosca` / `.csar` files | HTML report, interactive graph, JSON audit |
+| Output | `.tosca` / `.csar` files | HTML report,   JSON audit |
 | Use when | Designing a new topology from scratch | Auditing any existing TOSCA file |
 
 ---
