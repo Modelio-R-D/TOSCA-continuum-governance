@@ -89,17 +89,6 @@ topologies/grid5000/
 └── toulouse.yaml      ← 2 clusters, x86_64 + AArch64 (Jetson AGX Xavier)
 ```
 
-Topologies that use publicly verifiable data  
-
-| Site | Highlight | TOSCA finding |
-|---|---|---|
-| Nantes | ecotaxe: 3× A100 80GB (exotic) | ACCEL-002: 5 unique FPGA fabrics |
-| Luxembourg | vianden: 8× MI300X, 1.5 TiB GPU RAM | ACCEL-001: GPU-only via exotic access |
-| Louvain | spirou: 2×100 Gbps SR-IOV per node | REDUND-002: single cluster, 8 nodes |
-| Toulouse | estats: only AArch64 site in survey | ARCH-003: mixed ISA (x86_64 + AArch64) |
-
----
-
  
 ## Related work
 
