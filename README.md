@@ -28,11 +28,6 @@ python tools/tosca_audit.py topologies/continuum/clusters_topology.yaml
 # Generate an HTML report
 python tools/tosca_to_html.py topologies/grid5000/luxembourg.yaml
  
-```
-
- 
----
-
 ## Audit rules
 
 18 rules across 8 categories. Each rule has a trigger condition, detection logic, remediation guidance, and a real-world testbed example.
