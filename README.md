@@ -48,21 +48,7 @@ python tools/tosca_to_html.py topologies/grid5000/luxembourg.yaml
 | **CPU** | 2 | Sub-1 GHz frequency, single-core nodes |
 | **COMPAT** | 1 | ARM32 declared as K3s server (unsupported since v1.24) |
 
-```
-🔴 [CRITICAL] ARCH-001 · upm_node_pynq_z1
-   ARMv7 32-bit — no 64-bit Docker image support
-   → Build images with: docker buildx --platform linux/arm/v7
-
-🔴 [CRITICAL] MEM-001  · unis_node_zedboard
-   RAM = 0.5 GiB — high OOM risk under container workloads
-   → Reserve for bare-metal FPGA tasks only
-
-⚠️  [WARNING]  ACCEL-001 · Continuum
-   Single NPU (abi_node_imx8mp) — SPOF for inference workloads
-   → Implement CPU-based fallback inference path
-```
-
----
+ 
 
 ## ISA Taxonomy
 
