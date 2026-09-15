@@ -89,8 +89,7 @@ topologies/grid5000/
 └── toulouse.yaml      ← 2 clusters, x86_64 + AArch64 (Jetson AGX Xavier)
 ```
 
- 
-## Related work
+ ## Related work
 
 This toolchain complements [**TOSCA Designer**](https://github.com/Modelio-R-D/ToscaDesigner)
 (latest: [v0.5.1](https://github.com/Modelio-R-D/ToscaDesigner/releases/tag/v0.5.1), Sep 2025),
@@ -110,7 +109,7 @@ and enriched CSAR export. Developed by Softeam R&D as part of the
 | Output | `.tosca` / `.csar` files | HTML report,   JSON audit |
 | Use when | Designing a new topology from scratch | Auditing any existing TOSCA file |
 
----
+ 
 
 ## Talk
 
@@ -123,13 +122,7 @@ Slides and live demo available in [`/talk`](./talk/).
 
 Deploying applications on a heterogeneous cloud-fog-edge infrastructure requires topological models that account for layer heterogeneity, resource diversity, and inter-layer quality constraints. TOSCA (Topology and Orchestration Specification for Cloud Applications) provides a vendor-independent formalism for describing such topologies, but its potential for automated architectural analysis remains largely unexplored. In this presentation, we introduce a TOSCA-based governance toolchain composed of two complementary components: (1) a formal TOSCA model described in the Modelio modeling tool for heterogeneous compute nodes, and (2) an automated architectural auditor implementing 21 detection rules across 8 categories.
 
----
-
-## License
-
-[GPL](./LICENSE) — use freely, contribute back.
-
----
+ 
 
 ## Contributing
 
