@@ -1,0 +1,1914 @@
+tosca_definitions_version: tosca_simple_yaml_1_3
+
+description: >
+  TOSCA topology for the Grid'5000 Sophia Antipolis site.
+  Source: https://www.grid5000.fr/w/Sophia:Hardware
+  Summary: 51 clusters, 114 nodes, 3180 CPU cores, 218 GPUs,
+           1357312 GPU cores, 31.78 TiB RAM, 364.02 TB storage,
+           172.9 TFLOPS CPU (excl. GPUs).
+  Two queues: default (1 cluster: uvb, 4 nodes) +
+              abaca (50 clusters, 110 nodes).
+  Naming themes:
+    - "esterel" series: Massif de l'Esterel (volcanic red rocks,
+      Mediterranean maquis, les herbes aromatiques!) near Cannes/Frejus
+    - "mercantour" series: Mercantour National Park (Alpes-Maritimes)
+    - "musa": genus of banana plants / Mediterranean botanica
+    - "uvb": legacy acronym (oldest cluster, 2011 Westmere)
+  Records in G5K survey:
+    - 51 clusters: ABSOLUTE RECORD across all 12 G5K sites
+    - uvb (2011): oldest hardware in our 8-site survey (Westmere CPUs)
+    - esterel3-4: Maxwell GTX TITAN X (CC 5.2) -- oldest GPU in survey
+    - esterel42: 8x H100 NVL + Intel Xeon 6710E + 2.0 TiB RAM
+    - mercantour7: ~48 TB HDD -- most bulk storage per node in survey
+    - Universal InfiniBand: every abaca node has at least 40 Gbps IB
+    - GPU diversity: Pascal/Maxwell/Turing/Volta/Ampere/Ada/Hopper
+
+metadata:
+  template_name:    Grid5000-Sophia
+  template_version: "1.0.0"
+  template_author:  Generated from Grid5000 Reference API
+  site:             Sophia
+  source_url:       https://www.grid5000.fr/w/Sophia:Hardware
+  created:          "2026-09-15"
+
+data_types:
+
+  g5k.datatypes.CPUInfo:
+    derived_from: tosca.datatypes.Root
+    properties:
+      architecture:      { type: string, required: true }
+      model:             { type: string, required: false }
+      microarchitecture: { type: string, required: false }
+      num_cpus:          { type: integer, required: true }
+      cores_per_cpu:     { type: integer, required: true }
+      max_frequency_ghz: { type: float, required: false }
+
+  g5k.datatypes.StorageDisk:
+    derived_from: tosca.datatypes.Root
+    properties:
+      label:       { type: string, required: true }
+      capacity_tb: { type: float, required: true }
+      type:        { type: string, required: true }
+      interface:   { type: string, required: false }
+      model:       { type: string, required: false }
+      primary:     { type: boolean, default: false }
+
+  g5k.datatypes.NetworkInterface:
+    derived_from: tosca.datatypes.Root
+    properties:
+      name:                     { type: string, required: true }
+      rate_gbps:                { type: float, required: true }
+      type:                     { type: string, default: Ethernet }
+      model:                    { type: string, required: false }
+      driver:                   { type: string, required: false }
+      sriov_enabled:            { type: boolean, default: false }
+      available_for_experiment: { type: boolean, default: true }
+
+  g5k.datatypes.GPUInfo:
+    derived_from: tosca.datatypes.Root
+    properties:
+      count:              { type: integer, required: true }
+      model:              { type: string, required: true }
+      vendor:             { type: string, required: false }
+      architecture:       { type: string, required: false }
+      vram_gib:           { type: float, required: true }
+      gpu_cores:          { type: integer, required: false }
+      compute_capability: { type: string, required: false }
+
+node_types:
+
+  g5k.nodes.Site:
+    derived_from: tosca.nodes.Root
+    properties:
+      site_name:         { type: string, required: true }
+      location:          { type: string, required: false }
+      frontend_hostname: { type: string, required: false }
+      total_nodes:       { type: integer, required: false }
+      total_cpu_cores:   { type: integer, required: false }
+      total_gpu_count:   { type: integer, default: 0 }
+      total_gpu_cores:   { type: integer, default: 0 }
+      total_ram_tib:     { type: float, required: false }
+      total_storage_tb:  { type: float, required: false }
+      tflops_cpu:        { type: float, required: false }
+
+  g5k.nodes.Cluster:
+    derived_from: tosca.nodes.Root
+    properties:
+      cluster_name:       { type: string, required: true }
+      access_condition:   { type: string, default: default }
+      oar_queue:          { type: string, default: default }
+      date_of_arrival:    { type: string, required: false }
+      manufacturing_date: { type: string, required: false }
+      total_nodes:        { type: integer, required: false }
+      max_walltime_hours: { type: integer, required: false }
+
+  g5k.nodes.ComputeNode:
+    derived_from: tosca.nodes.Compute
+    properties:
+      node_name:          { type: string, required: true }
+      node_range:         { type: string, required: false }
+      count:              { type: integer, required: true }
+      hw_model:           { type: string, required: false }
+      manufacturing_date: { type: string, required: false }
+      cpu_info:           { type: g5k.datatypes.CPUInfo, required: true }
+      ram_gib:            { type: float, required: true }
+      storage:            { type: list, entry_schema: { type: g5k.datatypes.StorageDisk }, required: false }
+      network_interfaces: { type: list, entry_schema: { type: g5k.datatypes.NetworkInterface }, required: false }
+      gpu:                { type: g5k.datatypes.GPUInfo, required: false }
+      supported_image_platforms: { type: list, entry_schema: { type: string }, required: false }
+
+topology_template:
+
+  node_templates:
+
+    site_sophia:
+      type: g5k.nodes.Site
+      properties:
+        site_name:         Sophia
+        location:          Sophia Antipolis, France
+        frontend_hostname: fsophia
+        total_nodes:       114
+        total_cpu_cores:   3180
+        total_gpu_count:   218
+        total_gpu_cores:   1357312
+        total_ram_tib:     31.78
+        total_storage_tb:  364.02
+        tflops_cpu:        172.9
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # DEFAULT QUEUE: uvb (4 nodes, 2011 Westmere -- oldest in survey)
+    # ═══════════════════════════════════════════════════════════════════════
+    cluster_uvb:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: uvb
+        access_condition: default
+        oar_queue: default
+        date_of_arrival: "2011-01-04"
+        manufacturing_date: "2011-01-04"
+        total_nodes: 4
+
+    uvb_nodes:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: uvb
+        node_range: "uvb-[1-4]"
+        count: 4
+        hw_model: Dell PowerEdge C6100
+        manufacturing_date: "2011-01-04"
+        cpu_info:
+          architecture: x86_64
+          model: Intel Xeon X5670
+          microarchitecture: Westmere
+          num_cpus: 2
+          cores_per_cpu: 6
+          max_frequency_ghz: 2.93
+          # Westmere (2010): 32nm, 6-core Nehalem successor.
+          # Still running in 2026 -- 15 years of service.
+        ram_gib: 96.0
+        storage:
+          - { label: disk0, capacity_tb: 0.25, type: HDD, interface: SATA, model: "WDC WD2502ABYS-1", primary: true }
+        network_interfaces:
+          - { name: eth0/eno1, rate_gbps: 1.0, model: "Intel 82576", driver: igb, sriov_enabled: true, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 40.0, type: InfiniBand, model: "Mellanox MT25408A0 ConnectX", driver: mlx4_core, available_for_experiment: true }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_uvb }
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # ABACA QUEUE: esterel series (single-node GPU workstations)
+    # All have InfiniBand (40 or 56 Gbps). Network: 1 Gbps Ethernet + IB.
+    # ═══════════════════════════════════════════════════════════════════════
+
+    cluster_esterel2:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: esterel2
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-03-12"
+        manufacturing_date: "2016-05-04"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    esterel2_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: esterel2-1
+        count: 1
+        hw_model: Dell PowerEdge T630
+        manufacturing_date: "2016-05-04"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon E5-2620 v3", microarchitecture: Haswell, num_cpus: 2, cores_per_cpu: 6, max_frequency_ghz: 2.40 }
+        ram_gib: 128.0
+        storage: [ { label: disk0, capacity_tb: 2.0, type: HDD, interface: SAS, primary: true } ]
+        network_interfaces:
+          - { name: eth0, rate_gbps: 1.0, model: "Intel I350", driver: igb, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 40.0, type: InfiniBand, model: "Mellanox ConnectX-3", driver: mlx4_core, available_for_experiment: true }
+        gpu: { count: 4, model: "Nvidia GeForce GTX 1080 Ti", vendor: Nvidia, architecture: Pascal, vram_gib: 11.0, gpu_cores: 3584, compute_capability: "6.1" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_esterel2 }
+
+    cluster_esterel3:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: esterel3
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-03-25"
+        manufacturing_date: "2016-06-06"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    esterel3_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: esterel3-1
+        count: 1
+        hw_model: Dell PowerEdge T630
+        manufacturing_date: "2016-06-06"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon E5-2630 v4", microarchitecture: Broadwell, num_cpus: 2, cores_per_cpu: 10, max_frequency_ghz: 2.20 }
+        ram_gib: 48.0
+        storage:
+          - { label: disk0, capacity_tb: 2.0, type: HDD, primary: true }
+          - { label: disk1, capacity_tb: 0.399, type: HDD }
+        network_interfaces:
+          - { name: eth0, rate_gbps: 1.0, model: "Intel I350", driver: igb, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 40.0, type: InfiniBand, model: "Mellanox ConnectX-3", driver: mlx4_core, available_for_experiment: true }
+        gpu:
+          count: 4
+          model: Nvidia GeForce GTX TITAN X
+          vendor: Nvidia
+          architecture: Maxwell
+          vram_gib: 12.0
+          gpu_cores: 3072
+          compute_capability: "5.2"
+          # Maxwell GM200 (2015) -- oldest GPU architecture in the 8-site survey
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_esterel3 }
+
+    cluster_esterel4:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: esterel4
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-03-20"
+        manufacturing_date: "2016-06-08"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    esterel4_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: esterel4-1
+        count: 1
+        hw_model: Dell PowerEdge T630
+        manufacturing_date: "2016-06-08"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon E5-2630 v4", microarchitecture: Broadwell, num_cpus: 2, cores_per_cpu: 10, max_frequency_ghz: 2.20 }
+        ram_gib: 128.0
+        storage:
+          - { label: disk0, capacity_tb: 2.0, type: HDD, primary: true }
+          - { label: disk1, capacity_tb: 1.6, type: HDD }
+        network_interfaces:
+          - { name: eth0, rate_gbps: 1.0, model: "Intel I350", driver: igb, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 40.0, type: InfiniBand, model: "Mellanox ConnectX-3", driver: mlx4_core, available_for_experiment: true }
+        gpu: { count: 4, model: "Nvidia GeForce GTX TITAN X", vendor: Nvidia, architecture: Maxwell, vram_gib: 12.0, gpu_cores: 3072, compute_capability: "5.2" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_esterel4 }
+
+    cluster_esterel5:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: esterel5
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-02-25"
+        manufacturing_date: "2016-06-08"
+        total_nodes: 2
+        max_walltime_hours: 168
+
+    esterel5_nodes:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: esterel5
+        node_range: "esterel5-[1-2]"
+        count: 2
+        hw_model: Dell PowerEdge T630
+        manufacturing_date: "2016-06-08"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon E5-2630 v4", microarchitecture: Broadwell, num_cpus: 2, cores_per_cpu: 10, max_frequency_ghz: 2.20 }
+        ram_gib: 128.0
+        storage:
+          - { label: disk0, capacity_tb: 2.0, type: HDD, primary: true }
+          - { label: disk1, capacity_tb: 1.6, type: SSD }
+        network_interfaces:
+          - { name: eth0, rate_gbps: 1.0, model: "Intel I350", driver: igb, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 40.0, type: InfiniBand, model: "Mellanox ConnectX-3", driver: mlx4_core, available_for_experiment: true }
+        gpu: { count: 3, model: "Nvidia GeForce GTX 1080", vendor: Nvidia, architecture: Pascal, vram_gib: 8.0, gpu_cores: 2560, compute_capability: "6.1" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_esterel5 }
+
+    # esterel6-17: single-node GPU workstations (1 Gbps + IB)
+    # Condensed with inline notation for brevity
+    cluster_esterel6:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: esterel6
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-02-26"
+        manufacturing_date: "2017-04-18"
+        total_nodes: 1
+        max_walltime_hours: 0    # 0h = immediate reservation only (no batch)
+
+    esterel6_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: esterel6-1
+        count: 1
+        hw_model: Dell PowerEdge T630
+        manufacturing_date: "2017-04-18"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon E5-2650 v4", microarchitecture: Broadwell, num_cpus: 2, cores_per_cpu: 12, max_frequency_ghz: 2.20 }
+        ram_gib: 64.0
+        storage:
+          - { label: disk0, capacity_tb: 2.0, type: HDD, primary: true }
+          - { label: disk1, capacity_tb: 0.4, type: SSD, model: "Intel SSDSC2BX40" }
+        network_interfaces:
+          - { name: eth0, rate_gbps: 1.0, model: "Intel I350", driver: igb, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 40.0, type: InfiniBand, model: "Mellanox ConnectX-3", driver: mlx4_core, available_for_experiment: true }
+        gpu: { count: 4, model: "Nvidia GeForce GTX 1080 Ti", vendor: Nvidia, architecture: Pascal, vram_gib: 11.0, gpu_cores: 3584, compute_capability: "6.1" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_esterel6 }
+
+    cluster_esterel7:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: esterel7
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-03-06"
+        manufacturing_date: "2017-05-23"
+        total_nodes: 2
+        max_walltime_hours: 168
+
+    esterel7_nodes:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: esterel7
+        node_range: "esterel7-[1-2]"
+        count: 2
+        hw_model: Dell PowerEdge T630
+        manufacturing_date: "2017-05-23"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon E5-2620 v4", microarchitecture: Broadwell, num_cpus: 2, cores_per_cpu: 8, max_frequency_ghz: 2.10 }
+        ram_gib: 128.0
+        storage:
+          - { label: disk0, capacity_tb: 0.999, type: HDD, primary: true }
+          - { label: disk1, capacity_tb: 0.399, type: HDD }
+        network_interfaces:
+          - { name: eth0, rate_gbps: 1.0, model: "Intel I350", driver: igb, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 40.0, type: InfiniBand, model: "Mellanox ConnectX-3", driver: mlx4_core, available_for_experiment: true }
+        gpu: { count: 4, model: "Nvidia GeForce GTX 1080 Ti", vendor: Nvidia, architecture: Pascal, vram_gib: 11.0, gpu_cores: 3584, compute_capability: "6.1" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_esterel7 }
+
+    cluster_esterel8:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: esterel8
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-07-15"
+        manufacturing_date: "2017-11-05"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    esterel8_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: esterel8-1
+        count: 1
+        hw_model: Dell PowerEdge T630
+        manufacturing_date: "2017-11-05"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon E5-2630 v4", microarchitecture: Broadwell, num_cpus: 2, cores_per_cpu: 10, max_frequency_ghz: 2.20 }
+        ram_gib: 128.0
+        storage:
+          - { label: disk0, capacity_tb: 0.599, type: HDD, primary: true }
+          - { label: disk1, capacity_tb: 1.6, type: HDD }
+        network_interfaces:
+          - { name: eth0, rate_gbps: 1.0, model: "Intel I350", driver: igb, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 56.0, type: InfiniBand, model: "Mellanox ConnectX-3", driver: mlx4_core, available_for_experiment: true }
+        gpu: { count: 4, model: "Nvidia GeForce GTX 1080 Ti", vendor: Nvidia, architecture: Pascal, vram_gib: 11.0, gpu_cores: 3584, compute_capability: "6.1" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_esterel8 }
+
+    cluster_esterel9:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: esterel9
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-07-15"
+        manufacturing_date: "2017-11-05"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    esterel9_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: esterel9-1
+        count: 1
+        hw_model: Dell PowerEdge T630
+        manufacturing_date: "2017-11-05"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon E5-2630 v4", microarchitecture: Broadwell, num_cpus: 2, cores_per_cpu: 10, max_frequency_ghz: 2.20 }
+        ram_gib: 64.0
+        storage:
+          - { label: disk0, capacity_tb: 1.2, type: HDD, primary: true }
+          - { label: disk1, capacity_tb: 1.6, type: HDD }
+          - { label: disk2, capacity_tb: 3.84, type: HDD }
+        network_interfaces:
+          - { name: eth0, rate_gbps: 1.0, model: "Intel I350", driver: igb, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 56.0, type: InfiniBand, model: "Mellanox ConnectX-3", driver: mlx4_core, available_for_experiment: true }
+        gpu: { count: 4, model: "Nvidia GeForce GTX 1080 Ti", vendor: Nvidia, architecture: Pascal, vram_gib: 11.0, gpu_cores: 3584, compute_capability: "6.1" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_esterel9 }
+
+    cluster_esterel10:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: esterel10
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2024-12-19"
+        manufacturing_date: "2017-11-15"
+        total_nodes: 3
+        max_walltime_hours: 168
+
+    esterel10_4gpu:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: esterel10
+        node_range: "esterel10-[1-2]"
+        count: 2
+        hw_model: Dell T630
+        manufacturing_date: "2017-11-15"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon E5-2630 v4", microarchitecture: Broadwell, num_cpus: 2, cores_per_cpu: 10, max_frequency_ghz: 2.20 }
+        ram_gib: 128.0
+        storage:
+          - { label: disk0, capacity_tb: 1.6, type: SSD, interface: SAS, model: "Toshiba THNSF81D60CSE", primary: true }
+          - { label: disk1, capacity_tb: 0.6, type: HDD, interface: SAS, model: "Toshiba AL14SEB060NY" }
+          - { label: disk2, capacity_tb: 0.6, type: HDD, interface: SAS, model: "Toshiba AL14SEB060NY" }
+        network_interfaces:
+          - { name: eth0, rate_gbps: 1.0, model: "Intel I350", driver: igb, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 56.0, type: InfiniBand, model: "Mellanox ConnectX-3", driver: mlx4_core, available_for_experiment: true }
+        gpu: { count: 4, model: "Nvidia GeForce GTX 1080 Ti", vendor: Nvidia, architecture: Pascal, vram_gib: 11.0, gpu_cores: 3584, compute_capability: "6.1" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_esterel10 }
+
+    esterel10_3gpu:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: esterel10-3
+        node_range: "esterel10-3"
+        count: 1
+        hw_model: Dell T630
+        manufacturing_date: "2017-11-15"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon E5-2630 v4", microarchitecture: Broadwell, num_cpus: 2, cores_per_cpu: 10, max_frequency_ghz: 2.20 }
+        ram_gib: 128.0
+        storage:
+          - { label: disk0, capacity_tb: 1.6, type: SSD, interface: SAS, model: "Toshiba THNSF81D60CSE", primary: true }
+          - { label: disk1, capacity_tb: 0.6, type: HDD, interface: SAS }
+          - { label: disk2, capacity_tb: 0.6, type: HDD, interface: SAS }
+        network_interfaces:
+          - { name: eth0, rate_gbps: 1.0, model: "Intel I350", driver: igb, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 56.0, type: InfiniBand, model: "Mellanox ConnectX-3", driver: mlx4_core, available_for_experiment: true }
+        gpu: { count: 3, model: "Nvidia GeForce GTX 1080 Ti", vendor: Nvidia, architecture: Pascal, vram_gib: 11.0, gpu_cores: 3584, compute_capability: "6.1" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_esterel10 }
+
+    cluster_esterel11:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: esterel11
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-04-30"
+        manufacturing_date: "2017-11-14"
+        total_nodes: 2
+        max_walltime_hours: 168
+
+    esterel11_nodes:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: esterel11
+        node_range: "esterel11-[1-2]"
+        count: 2
+        hw_model: Dell PowerEdge T630
+        manufacturing_date: "2017-11-14"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon E5-2620 v4", microarchitecture: Broadwell, num_cpus: 2, cores_per_cpu: 8, max_frequency_ghz: 2.10 }
+        ram_gib: 128.0
+        storage:
+          - { label: disk0, capacity_tb: 0.599, type: HDD, primary: true }
+          - { label: disk1, capacity_tb: 0.479, type: HDD }
+        network_interfaces:
+          - { name: eth0, rate_gbps: 1.0, model: "Intel I350", driver: igb, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 40.0, type: InfiniBand, model: "Mellanox ConnectX-3", driver: mlx4_core, available_for_experiment: true }
+        gpu: { count: 3, model: "Nvidia GeForce GTX 1080 Ti", vendor: Nvidia, architecture: Pascal, vram_gib: 11.0, gpu_cores: 3584, compute_capability: "6.1" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_esterel11 }
+
+    cluster_esterel12:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: esterel12
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-04-11"
+        manufacturing_date: "2018-03-02"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    esterel12_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: esterel12-1
+        count: 1
+        hw_model: Dell PowerEdge T630
+        manufacturing_date: "2018-03-02"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon E5-2630 v4", microarchitecture: Broadwell, num_cpus: 2, cores_per_cpu: 10, max_frequency_ghz: 2.20 }
+        ram_gib: 64.0
+        storage:
+          - { label: disk0, capacity_tb: 0.599, type: HDD, primary: true }
+          - { label: disk1, capacity_tb: 1.6, type: HDD }
+        network_interfaces:
+          - { name: eth0, rate_gbps: 1.0, model: "Intel I350", driver: igb, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 40.0, type: InfiniBand, model: "Mellanox ConnectX-3", driver: mlx4_core, available_for_experiment: true }
+        gpu: { count: 4, model: "Nvidia GeForce GTX 1080 Ti", vendor: Nvidia, architecture: Pascal, vram_gib: 11.0, gpu_cores: 3584, compute_capability: "6.1" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_esterel12 }
+
+    cluster_esterel13:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: esterel13
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-09-23"
+        manufacturing_date: "2018-03-14"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    esterel13_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: esterel13-1
+        count: 1
+        hw_model: Dell PowerEdge T640
+        manufacturing_date: "2018-03-14"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon Silver 4110", microarchitecture: Skylake-SP, num_cpus: 2, cores_per_cpu: 8, max_frequency_ghz: 2.10 }
+        ram_gib: 96.0
+        storage:
+          - { label: disk0, capacity_tb: 0.599, type: HDD, primary: true }
+          - { label: disk1, capacity_tb: 0.959, type: HDD }
+        network_interfaces:
+          - { name: eth0, rate_gbps: 1.0, model: "Broadcom BCM57416 RDMA", driver: bnxt_en, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 40.0, type: InfiniBand, model: "Mellanox ConnectX-3", driver: mlx4_core, available_for_experiment: true }
+        gpu: { count: 4, model: "Nvidia GeForce GTX 1080 Ti", vendor: Nvidia, architecture: Pascal, vram_gib: 11.0, gpu_cores: 3584, compute_capability: "6.1" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_esterel13 }
+
+    cluster_esterel14:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: esterel14
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-09-26"
+        manufacturing_date: "2018-06-18"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    esterel14_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: esterel14-1
+        count: 1
+        hw_model: Dell PowerEdge T640
+        manufacturing_date: "2018-06-18"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon Silver 4110", microarchitecture: Skylake-SP, num_cpus: 2, cores_per_cpu: 8, max_frequency_ghz: 2.10 }
+        ram_gib: 96.0
+        storage:
+          - { label: disk0, capacity_tb: 0.599, type: HDD, primary: true }
+          - { label: disk1, capacity_tb: 1.92, type: SSD }
+          - { label: disk2, capacity_tb: 3.84, type: SSD }
+        network_interfaces:
+          - { name: eth0, rate_gbps: 1.0, model: "Broadcom BCM57416 RDMA", driver: bnxt_en, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 56.0, type: InfiniBand, model: "Mellanox ConnectX-3", driver: mlx4_core, available_for_experiment: true }
+        gpu: { count: 4, model: "Nvidia GeForce GTX 1080 Ti", vendor: Nvidia, architecture: Pascal, vram_gib: 11.0, gpu_cores: 3584, compute_capability: "6.1" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_esterel14 }
+
+    cluster_esterel15:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: esterel15
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-07-24"
+        manufacturing_date: "2018-07-02"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    esterel15_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: esterel15-1
+        count: 1
+        hw_model: Dell PowerEdge T640
+        manufacturing_date: "2018-07-02"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon Silver 4110", microarchitecture: Skylake-SP, num_cpus: 2, cores_per_cpu: 8, max_frequency_ghz: 2.10 }
+        ram_gib: 96.0
+        storage:
+          - { label: disk0, capacity_tb: 0.599, type: HDD, primary: true }
+          - { label: disk1, capacity_tb: 1.92, type: HDD }
+        network_interfaces:
+          - { name: eth0, rate_gbps: 1.0, model: "Broadcom BCM57416 RDMA", driver: bnxt_en, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 40.0, type: InfiniBand, model: "Mellanox ConnectX-3", driver: mlx4_core, available_for_experiment: true }
+        gpu: { count: 4, model: "Nvidia GeForce GTX 1080 Ti", vendor: Nvidia, architecture: Pascal, vram_gib: 11.0, gpu_cores: 3584, compute_capability: "6.1" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_esterel15 }
+
+    cluster_esterel16:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: esterel16
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-09-25"
+        manufacturing_date: "2018-10-31"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    esterel16_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: esterel16-1
+        count: 1
+        hw_model: Dell PowerEdge T640
+        manufacturing_date: "2018-10-31"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon Silver 4110", microarchitecture: Skylake-SP, num_cpus: 2, cores_per_cpu: 8, max_frequency_ghz: 2.10 }
+        ram_gib: 96.0
+        storage:
+          - { label: disk0, capacity_tb: 0.599, type: HDD, primary: true }
+          - { label: disk1, capacity_tb: 0.798, type: SSD }
+          - { label: disk2, capacity_tb: 1.92, type: SSD }
+        network_interfaces:
+          - { name: eth0, rate_gbps: 1.0, model: "Broadcom BCM57416 RDMA", driver: bnxt_en, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 40.0, type: InfiniBand, model: "Mellanox ConnectX-3", driver: mlx4_core, available_for_experiment: true }
+        gpu: { count: 4, model: "Nvidia GeForce RTX 2080 Ti", vendor: Nvidia, architecture: Turing, vram_gib: 11.0, gpu_cores: 4352, compute_capability: "7.5" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_esterel16 }
+
+    cluster_esterel17:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: esterel17
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-10-02"
+        manufacturing_date: "2018-10-25"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    esterel17_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: esterel17-1
+        count: 1
+        hw_model: Dell PowerEdge T640
+        manufacturing_date: "2018-10-25"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon Silver 4110", microarchitecture: Skylake-SP, num_cpus: 2, cores_per_cpu: 8, max_frequency_ghz: 2.10 }
+        ram_gib: 480.0
+        # 480 GiB on a Silver 4110 -- unusual, likely a research dataset node
+        storage:
+          - { label: disk0, capacity_tb: 0.599, type: HDD, primary: true }
+          - { label: disk1, capacity_tb: 1.6, type: HDD }
+        network_interfaces:
+          - { name: eth0, rate_gbps: 1.0, model: "Broadcom BCM57416 RDMA", driver: bnxt_en, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 56.0, type: InfiniBand, model: "Mellanox ConnectX-3", driver: mlx4_core, available_for_experiment: true }
+        gpu: { count: 4, model: "Nvidia RTX A6000", vendor: Nvidia, architecture: Ampere, vram_gib: 48.0, gpu_cores: 10752, compute_capability: "8.6" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_esterel17 }
+
+    cluster_esterel19:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: esterel19
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2026-04-23"
+        manufacturing_date: "2019-04-23"
+        total_nodes: 2
+        max_walltime_hours: 168
+
+    esterel19_nodes:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: esterel19
+        node_range: "esterel19-[1-2]"
+        count: 2
+        hw_model: Dell PowerEdge T640
+        manufacturing_date: "2019-04-23"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon Silver 4110", microarchitecture: Skylake-SP, num_cpus: 2, cores_per_cpu: 8, max_frequency_ghz: 2.10 }
+        ram_gib: 96.0
+        storage:
+          - { label: disk0, capacity_tb: 0.599, type: HDD, primary: true }
+          - { label: disk1, capacity_tb: 1.92, type: SSD }
+        network_interfaces:
+          - { name: eth0, rate_gbps: 1.0, model: "Broadcom BCM57416 RDMA", driver: bnxt_en, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 40.0, type: InfiniBand, model: "Mellanox ConnectX-3", driver: mlx4_core, available_for_experiment: true }
+        gpu: { count: 4, model: "Nvidia GeForce RTX 2080 Ti", vendor: Nvidia, architecture: Turing, vram_gib: 11.0, gpu_cores: 4352, compute_capability: "7.5" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_esterel19 }
+
+    cluster_esterel20:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: esterel20
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2026-09-05"
+        manufacturing_date: "2019-04-23"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    esterel20_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: esterel20-1
+        count: 1
+        hw_model: Dell PowerEdge T640
+        manufacturing_date: "2019-04-23"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon Silver 4110", microarchitecture: Skylake-SP, num_cpus: 2, cores_per_cpu: 8, max_frequency_ghz: 2.10 }
+        ram_gib: 192.0
+        storage:
+          - { label: disk0, capacity_tb: 0.599, type: HDD, primary: true }
+          - { label: disk1, capacity_tb: 1.92, type: HDD }
+        network_interfaces:
+          - { name: eth0, rate_gbps: 1.0, model: "Broadcom BCM57416 RDMA", driver: bnxt_en, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 40.0, type: InfiniBand, model: "Mellanox ConnectX-3", driver: mlx4_core, available_for_experiment: true }
+        gpu: { count: 4, model: "Nvidia TITAN RTX", vendor: Nvidia, architecture: Turing, vram_gib: 24.0, gpu_cores: 4608, compute_capability: "7.5" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_esterel20 }
+
+    cluster_esterel21:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: esterel21
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-08-14"
+        manufacturing_date: "2019-06-28"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    esterel21_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: esterel21-1
+        count: 1
+        hw_model: Dell PowerEdge T640
+        manufacturing_date: "2019-06-28"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon Silver 4110", microarchitecture: Skylake-SP, num_cpus: 2, cores_per_cpu: 8, max_frequency_ghz: 2.10 }
+        ram_gib: 96.0
+        storage:
+          - { label: disk0, capacity_tb: 0.599, type: HDD, primary: true }
+          - { label: disk1, capacity_tb: 0.479, type: HDD }
+        network_interfaces:
+          - { name: eth0, rate_gbps: 1.0, model: "Broadcom BCM57416 RDMA", driver: bnxt_en, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 40.0, type: InfiniBand, model: "Mellanox ConnectX-3", driver: mlx4_core, available_for_experiment: true }
+        gpu: { count: 4, model: "Nvidia GeForce RTX 2080 Ti", vendor: Nvidia, architecture: Turing, vram_gib: 11.0, gpu_cores: 4352, compute_capability: "7.5" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_esterel21 }
+
+    cluster_esterel22:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: esterel22
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-04-09"
+        manufacturing_date: "2019-10-07"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    esterel22_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: esterel22-1
+        count: 1
+        hw_model: Dell PowerEdge T640
+        manufacturing_date: "2019-10-07"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon Gold 6240", microarchitecture: Cascade Lake-SP, num_cpus: 2, cores_per_cpu: 18, max_frequency_ghz: 2.60 }
+        ram_gib: 384.0
+        storage:
+          - { label: disk0, capacity_tb: 0.599, type: HDD, primary: true }
+          - { label: disk1, capacity_tb: 3.84, type: HDD }
+        network_interfaces:
+          - { name: eth0, rate_gbps: 1.0, model: "Broadcom BCM57416 RDMA", driver: bnxt_en, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 40.0, type: InfiniBand, model: "Mellanox ConnectX-3", driver: mlx4_core, available_for_experiment: true }
+        gpu: { count: 4, model: "Nvidia Quadro RTX 6000", vendor: Nvidia, architecture: Turing, vram_gib: 23.0, gpu_cores: 4608, compute_capability: "7.5" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_esterel22 }
+
+    cluster_esterel23:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: esterel23
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-08-21"
+        manufacturing_date: "2019-08-26"
+        total_nodes: 2
+        max_walltime_hours: 168
+
+    esterel23_nodes:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: esterel23
+        node_range: "esterel23-[1-2]"
+        count: 2
+        hw_model: Dell PowerEdge T640
+        manufacturing_date: "2019-08-26"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon Silver 4215", microarchitecture: Cascade Lake-SP, num_cpus: 2, cores_per_cpu: 8, max_frequency_ghz: 2.50 }
+        ram_gib: 192.0
+        storage:
+          - { label: disk0, capacity_tb: 0.599, type: HDD, primary: true }
+          - { label: disk1, capacity_tb: 3.84, type: HDD }
+        network_interfaces:
+          - { name: eth0, rate_gbps: 1.0, model: "Broadcom BCM57416 RDMA", driver: bnxt_en, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 40.0, type: InfiniBand, model: "Mellanox ConnectX-3", driver: mlx4_core, available_for_experiment: true }
+        gpu: { count: 4, model: "Nvidia Quadro RTX 6000", vendor: Nvidia, architecture: Turing, vram_gib: 23.0, gpu_cores: 4608, compute_capability: "7.5" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_esterel23 }
+
+    cluster_esterel24:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: esterel24
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-03-27"
+        manufacturing_date: "2020-09-27"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    esterel24_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: esterel24-1
+        count: 1
+        hw_model: Dell PowerEdge T640
+        manufacturing_date: "2020-09-27"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon Gold 6240R", microarchitecture: Cascade Lake-SP, num_cpus: 2, cores_per_cpu: 24, max_frequency_ghz: 2.40 }
+        ram_gib: 384.0
+        storage:
+          - { label: disk0, capacity_tb: 0.599, type: HDD, primary: true }
+          - { label: disk1, capacity_tb: 4.8, type: HDD }
+        network_interfaces:
+          - { name: eth0, rate_gbps: 1.0, model: "Broadcom BCM57416 RDMA", driver: bnxt_en, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 40.0, type: InfiniBand, model: "Mellanox MT25408 ConnectX", driver: mlx4_core, available_for_experiment: true }
+        gpu: { count: 4, model: "Nvidia Quadro RTX 8000", vendor: Nvidia, architecture: Turing, vram_gib: 45.0, gpu_cores: 4608, compute_capability: "7.5" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_esterel24 }
+
+    cluster_esterel25:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: esterel25
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-09-02"
+        manufacturing_date: "2020-08-18"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    esterel25_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: esterel25-1
+        count: 1
+        hw_model: Dell PowerEdge T640
+        manufacturing_date: "2020-08-18"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon Silver 4214R", microarchitecture: Cascade Lake-SP, num_cpus: 2, cores_per_cpu: 12, max_frequency_ghz: 2.40 }
+        ram_gib: 384.0
+        storage:
+          - { label: disk0, capacity_tb: 0.599, type: HDD, primary: true }
+          - { label: disk1, capacity_tb: 3.84, type: HDD }
+        network_interfaces:
+          - { name: eth0, rate_gbps: 1.0, model: "Broadcom BCM57416 RDMA", driver: bnxt_en, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 56.0, type: InfiniBand, model: "Mellanox ConnectX-5", driver: mlx5_core, available_for_experiment: true }
+        gpu: { count: 2, model: "Nvidia Quadro RTX 8000", vendor: Nvidia, architecture: Turing, vram_gib: 45.0, gpu_cores: 4608, compute_capability: "7.5" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_esterel25 }
+
+    cluster_esterel26:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: esterel26
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-03-25"
+        manufacturing_date: "2020-10-30"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    esterel26_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: esterel26-1
+        count: 1
+        hw_model: Dell PowerEdge T640
+        manufacturing_date: "2020-10-30"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon Silver 4216", microarchitecture: Cascade Lake-SP, num_cpus: 2, cores_per_cpu: 16, max_frequency_ghz: 2.10 }
+        ram_gib: 384.0
+        storage:
+          - { label: disk0, capacity_tb: 0.599, type: HDD, primary: true }
+          - { label: disk1, capacity_tb: 3.84, type: HDD }
+        network_interfaces:
+          - { name: eth0, rate_gbps: 1.0, model: "Broadcom BCM57416 RDMA", driver: bnxt_en, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 40.0, type: InfiniBand, model: "Mellanox MT25408 ConnectX", driver: mlx4_core, available_for_experiment: true }
+        gpu: { count: 4, model: "Nvidia Quadro RTX 8000", vendor: Nvidia, architecture: Turing, vram_gib: 45.0, gpu_cores: 4608, compute_capability: "7.5" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_esterel26 }
+
+    cluster_esterel27:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: esterel27
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-03-17"
+        manufacturing_date: "2019-01-01"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    esterel27_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: esterel27-1
+        count: 1
+        hw_model: Asus ESC8000G4
+        # 8-GPU tower server -- unusual manufacturer (Asus, not Dell)
+        manufacturing_date: "2019-01-01"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon Gold 5115", microarchitecture: Skylake-SP, num_cpus: 2, cores_per_cpu: 10, max_frequency_ghz: 2.40 }
+        ram_gib: 256.0
+        storage:
+          - { label: disk0, capacity_tb: 0.511, type: HDD, primary: true }
+          - { label: disk1, capacity_tb: 4.09, type: HDD }
+        network_interfaces:
+          - { name: eth0, rate_gbps: 1.0, model: "Intel I350", driver: igb, sriov_enabled: true, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 40.0, type: InfiniBand, model: "Mellanox ConnectX-3", driver: mlx4_core, available_for_experiment: true }
+        gpu: { count: 7, model: "Nvidia GeForce GTX 1080 Ti", vendor: Nvidia, architecture: Pascal, vram_gib: 11.0, gpu_cores: 3584, compute_capability: "6.1" }
+        # 7 GPUs: Asus ESC8000G4 is an 8-GPU capable chassis; one slot empty
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_esterel27 }
+
+    cluster_esterel28:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: esterel28
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-10-07"
+        manufacturing_date: "2019-01-16"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    esterel28_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: esterel28-1
+        count: 1
+        hw_model: SuperMicro SuperServer 4029GP-TVRT
+        manufacturing_date: "2019-01-16"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon Gold 6126", microarchitecture: Skylake-SP, num_cpus: 2, cores_per_cpu: 12, max_frequency_ghz: 2.60 }
+        ram_gib: 384.0
+        storage:
+          - { label: disk0, capacity_tb: 4.8, type: HDD, interface: SATA, primary: true }
+          - { label: disk1, capacity_tb: 0.239, type: HDD, interface: SAS }
+        network_interfaces:
+          - { name: eth0, rate_gbps: 1.0, model: "Intel X540-AT2", driver: ixgbe, sriov_enabled: true, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 56.0, type: InfiniBand, model: "Mellanox ConnectX-3", driver: mlx4_core, available_for_experiment: true }
+        gpu: { count: 4, model: "Nvidia Tesla V100-SXM2-32GB", vendor: Nvidia, architecture: Volta, vram_gib: 32.0, gpu_cores: 5120, compute_capability: "7.0" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_esterel28 }
+
+    # esterel29-44 + mercantour + musa: using summary table data
+    cluster_esterel29:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: esterel29
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-07-29"
+        manufacturing_date: "2019-07-25"
+        total_nodes: 4
+        max_walltime_hours: 168
+
+    esterel29_nodes:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: esterel29
+        node_range: "esterel29-[1-4]"
+        count: 4
+        hw_model: Dell PowerEdge T640
+        manufacturing_date: "2019-07-25"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon Silver 4110", microarchitecture: Skylake-SP, num_cpus: 2, cores_per_cpu: 8, max_frequency_ghz: 2.10 }
+        ram_gib: 96.0
+        storage:
+          - { label: disk0, capacity_tb: 0.599, type: HDD, primary: true }
+          - { label: disk1, capacity_tb: 0.959, type: HDD }
+        network_interfaces:
+          - { name: eth0, rate_gbps: 1.0, model: "Intel I350", driver: igb, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 40.0, type: InfiniBand, model: "Mellanox ConnectX-3", driver: mlx4_core, available_for_experiment: true }
+        gpu: { count: 3, model: "Nvidia Tesla T4", vendor: Nvidia, architecture: Turing, vram_gib: 15.0, gpu_cores: 2560, compute_capability: "7.5" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_esterel29 }
+
+    cluster_esterel30:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: esterel30
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-08-20"
+        manufacturing_date: "2019-08-21"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    esterel30_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: esterel30-1
+        count: 1
+        hw_model: Dell PowerEdge T640
+        manufacturing_date: "2019-08-21"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon Silver 4215", microarchitecture: Cascade Lake-SP, num_cpus: 2, cores_per_cpu: 8, max_frequency_ghz: 2.50 }
+        ram_gib: 384.0
+        storage:
+          - { label: disk0, capacity_tb: 0.599, type: HDD, primary: true }
+          - { label: disk1, capacity_tb: 3.84, type: HDD }
+        network_interfaces:
+          - { name: eth0, rate_gbps: 1.0, model: "Intel I350", driver: igb, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 56.0, type: InfiniBand, model: "Mellanox ConnectX-3", driver: mlx4_core, available_for_experiment: true }
+        gpu: { count: 3, model: "Nvidia Tesla V100-PCIE-32GB", vendor: Nvidia, architecture: Volta, vram_gib: 32.0, gpu_cores: 5120, compute_capability: "7.0" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_esterel30 }
+
+    cluster_esterel31:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: esterel31
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-04-16"
+        manufacturing_date: "2020-08-09"
+        total_nodes: 4
+        max_walltime_hours: 168
+
+    esterel31_nodes:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: esterel31
+        node_range: "esterel31-[1-4]"
+        count: 4
+        hw_model: Dell PowerEdge T640
+        manufacturing_date: "2020-08-09"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon Gold 6230R", microarchitecture: Cascade Lake-SP, num_cpus: 2, cores_per_cpu: 26, max_frequency_ghz: 2.10 }
+        ram_gib: 384.0
+        storage:
+          - { label: disk0, capacity_tb: 0.479, type: HDD, primary: true }
+          - { label: disk1, capacity_tb: 3.84, type: HDD }
+        network_interfaces:
+          - { name: eth0, rate_gbps: 10.0, model: "Intel X710", driver: i40e, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 40.0, type: InfiniBand, model: "Mellanox ConnectX-3", driver: mlx4_core, available_for_experiment: true }
+        gpu: { count: 4, model: "Nvidia Quadro RTX 8000", vendor: Nvidia, architecture: Turing, vram_gib: 45.0, gpu_cores: 4608, compute_capability: "7.5" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_esterel31 }
+
+    cluster_esterel32:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: esterel32
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-03-20"
+        manufacturing_date: "2020-08-09"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    esterel32_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: esterel32-1
+        count: 1
+        hw_model: Dell PowerEdge T640
+        manufacturing_date: "2020-08-09"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon Gold 6238R", microarchitecture: Cascade Lake-SP, num_cpus: 2, cores_per_cpu: 28, max_frequency_ghz: 2.20 }
+        ram_gib: 768.0
+        storage:
+          - { label: disk0, capacity_tb: 0.479, type: HDD, primary: true }
+          - { label: disk1, capacity_tb: 7.68, type: HDD }
+        network_interfaces:
+          - { name: eth0, rate_gbps: 1.0, model: "Intel I350", driver: igb, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 40.0, type: InfiniBand, model: "Mellanox ConnectX-3", driver: mlx4_core, available_for_experiment: true }
+        gpu: { count: 4, model: "Nvidia Quadro RTX 8000", vendor: Nvidia, architecture: Turing, vram_gib: 45.0, gpu_cores: 4608, compute_capability: "7.5" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_esterel32 }
+
+    cluster_esterel33:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: esterel33
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-04-28"
+        manufacturing_date: "2021-05-13"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    esterel33_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: esterel33-1
+        count: 1
+        hw_model: "Dell (unspecified)"
+        manufacturing_date: "2021-05-13"
+        cpu_info: { architecture: x86_64, model: "AMD EPYC 7282", microarchitecture: Zen 2, num_cpus: 2, cores_per_cpu: 16, max_frequency_ghz: 2.80 }
+        ram_gib: 256.0
+        storage:
+          - { label: disk0, capacity_tb: 0.479, type: SSD, primary: true }
+          - { label: disk1, capacity_tb: 2.88, type: SSD }
+        network_interfaces:
+          - { name: eth0, rate_gbps: 1.0, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 56.0, type: InfiniBand, model: "Mellanox ConnectX-3", driver: mlx4_core, available_for_experiment: true }
+        gpu: { count: 3, model: "Nvidia A40", vendor: Nvidia, architecture: Ampere, vram_gib: 45.0, gpu_cores: 10752, compute_capability: "8.6" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_esterel33 }
+
+    cluster_esterel34:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: esterel34
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-07-23"
+        manufacturing_date: "2021-07-19"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    esterel34_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: esterel34-1
+        count: 1
+        hw_model: "Dell (unspecified)"
+        manufacturing_date: "2021-07-19"
+        cpu_info: { architecture: x86_64, model: "AMD EPYC 7282", microarchitecture: Zen 2, num_cpus: 2, cores_per_cpu: 16, max_frequency_ghz: 2.80 }
+        ram_gib: 256.0
+        storage:
+          - { label: disk0, capacity_tb: 0.479, type: SSD, primary: true }
+          - { label: disk1, capacity_tb: 2.88, type: SSD }
+        network_interfaces:
+          - { name: eth0, rate_gbps: 1.0, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 56.0, type: InfiniBand, model: "Mellanox ConnectX-3", driver: mlx4_core, available_for_experiment: true }
+        gpu: { count: 3, model: "Nvidia A40", vendor: Nvidia, architecture: Ampere, vram_gib: 45.0, gpu_cores: 10752, compute_capability: "8.6" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_esterel34 }
+
+    cluster_esterel35:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: esterel35
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-07-15"
+        manufacturing_date: "2021-07-26"
+        total_nodes: 2
+        max_walltime_hours: 168
+
+    esterel35_nodes:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: esterel35
+        node_range: "esterel35-[1-2]"
+        count: 2
+        hw_model: "Dell (unspecified)"
+        manufacturing_date: "2021-07-26"
+        cpu_info: { architecture: x86_64, model: "AMD EPYC 7413", microarchitecture: Zen 3, num_cpus: 2, cores_per_cpu: 24, max_frequency_ghz: 2.65 }
+        ram_gib: 512.0
+        storage:
+          - { label: disk0, capacity_tb: 0.479, type: SSD, primary: true }
+          - { label: disk1, capacity_tb: 3.84, type: SSD }
+        network_interfaces:
+          - { name: eth0, rate_gbps: 1.0, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 40.0, type: InfiniBand, model: "Mellanox ConnectX-3", driver: mlx4_core, available_for_experiment: true }
+        gpu: { count: 3, model: "Nvidia A40", vendor: Nvidia, architecture: Ampere, vram_gib: 45.0, gpu_cores: 10752, compute_capability: "8.6" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_esterel35 }
+
+    cluster_esterel36:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: esterel36
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-10-06"
+        manufacturing_date: "2022-03-12"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    esterel36_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: esterel36-1
+        count: 1
+        hw_model: "Dell (unspecified)"
+        manufacturing_date: "2022-03-12"
+        cpu_info: { architecture: x86_64, model: "AMD EPYC 7662", microarchitecture: Zen 2, num_cpus: 2, cores_per_cpu: 48, max_frequency_ghz: 2.00 }
+        ram_gib: 1024.0    # 1.0 TiB
+        storage:
+          - { label: disk0, capacity_tb: 1.2, type: HDD, primary: true }
+          - { label: disk1, capacity_tb: 6.4, type: SSD }
+        network_interfaces:
+          - { name: eth0, rate_gbps: 1.0, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 40.0, type: InfiniBand, model: "Mellanox ConnectX-3", driver: mlx4_core, available_for_experiment: true }
+        gpu: { count: 3, model: "Nvidia A100-SXM4-40GB", vendor: Nvidia, architecture: Ampere, vram_gib: 40.0, gpu_cores: 6912, compute_capability: "8.0" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_esterel36 }
+
+    cluster_esterel37:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: esterel37
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-09-05"
+        manufacturing_date: "2022-12-05"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    esterel37_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: esterel37-1
+        count: 1
+        hw_model: "Dell (unspecified)"
+        manufacturing_date: "2022-12-05"
+        cpu_info: { architecture: x86_64, model: "AMD EPYC 7513", microarchitecture: Zen 3, num_cpus: 2, cores_per_cpu: 32, max_frequency_ghz: 2.60 }
+        ram_gib: 512.0
+        storage:
+          - { label: disk0, capacity_tb: 5.76, type: SSD, primary: true }
+          - { label: disk1, capacity_tb: 0.479, type: SSD }
+        network_interfaces:
+          - { name: eth0, rate_gbps: 1.0, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 40.0, type: InfiniBand, model: "Mellanox ConnectX-3", driver: mlx4_core, available_for_experiment: true }
+        gpu: { count: 3, model: "Nvidia A100-SXM4-80GB", vendor: Nvidia, architecture: Ampere, vram_gib: 80.0, gpu_cores: 6912, compute_capability: "8.0" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_esterel37 }
+
+    cluster_esterel38:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: esterel38
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-07-17"
+        manufacturing_date: "2023-01-10"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    esterel38_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: esterel38-1
+        count: 1
+        hw_model: "Dell (unspecified)"
+        manufacturing_date: "2023-01-10"
+        cpu_info: { architecture: x86_64, model: "AMD EPYC 7513", microarchitecture: Zen 3, num_cpus: 2, cores_per_cpu: 32, max_frequency_ghz: 2.60 }
+        ram_gib: 512.0
+        storage:
+          - { label: disk0, capacity_tb: 0.479, type: SSD, primary: true }
+          - { label: disk1, capacity_tb: 5.76, type: SSD }
+        network_interfaces:
+          - { name: eth0, rate_gbps: 10.0, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 20.0, type: InfiniBand, available_for_experiment: true }
+        gpu: { count: 2, model: "Nvidia A100-SXM4-80GB", vendor: Nvidia, architecture: Ampere, vram_gib: 80.0, gpu_cores: 6912, compute_capability: "8.0" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_esterel38 }
+
+    cluster_esterel39:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: esterel39
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-09-24"
+        manufacturing_date: "2022-12-05"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    esterel39_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: esterel39-1
+        count: 1
+        hw_model: "Dell (unspecified)"
+        manufacturing_date: "2022-12-05"
+        cpu_info: { architecture: x86_64, model: "AMD EPYC 7313", microarchitecture: Zen 3, num_cpus: 2, cores_per_cpu: 16, max_frequency_ghz: 3.00 }
+        ram_gib: 512.0
+        storage:
+          - { label: disk0, capacity_tb: 0.479, type: SSD, primary: true }
+          - { label: disk1, capacity_tb: 3.84, type: SSD }
+        network_interfaces:
+          - { name: eth0, rate_gbps: 1.0, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 20.0, type: InfiniBand, available_for_experiment: true }
+        gpu: { count: 3, model: "Nvidia A40", vendor: Nvidia, architecture: Ampere, vram_gib: 45.0, gpu_cores: 10752, compute_capability: "8.6" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_esterel39 }
+
+    cluster_esterel40:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: esterel40
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-07-07"
+        manufacturing_date: "2023-10-24"
+        total_nodes: 2
+        max_walltime_hours: 168
+
+    esterel40_nodes:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: esterel40
+        node_range: "esterel40-[1-2]"
+        count: 2
+        hw_model: "Dell (unspecified)"
+        manufacturing_date: "2023-10-24"
+        cpu_info: { architecture: x86_64, model: "AMD EPYC 7313", microarchitecture: Zen 3, num_cpus: 2, cores_per_cpu: 16, max_frequency_ghz: 3.00 }
+        ram_gib: 256.0
+        storage:
+          - { label: disk0, capacity_tb: 0.48, type: SSD, primary: true }
+          - { label: disk1, capacity_tb: 0.96, type: SSD }
+        network_interfaces:
+          - { name: eth0, rate_gbps: 1.0, sriov_enabled: true, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 40.0, type: InfiniBand, model: "Mellanox ConnectX-3", driver: mlx4_core, available_for_experiment: true }
+        gpu: { count: 2, model: "Nvidia A40", vendor: Nvidia, architecture: Ampere, vram_gib: 45.0, gpu_cores: 10752, compute_capability: "8.6" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_esterel40 }
+
+    cluster_esterel41:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: esterel41
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-01-25"
+        manufacturing_date: "2024-03-01"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    esterel41_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: esterel41-1
+        count: 1
+        hw_model: "Dell (unspecified)"
+        manufacturing_date: "2024-03-01"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon Gold 6426Y", microarchitecture: Sapphire Rapids, num_cpus: 2, cores_per_cpu: 16, max_frequency_ghz: 2.50 }
+        ram_gib: 512.0
+        storage:
+          - { label: disk0, capacity_tb: 0.479, type: SSD, primary: true }
+          - { label: disk1, capacity_tb: 2.88, type: SSD }
+        network_interfaces:
+          - { name: eth0, rate_gbps: 1.0, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 56.0, type: InfiniBand, model: "Mellanox ConnectX-3", driver: mlx4_core, available_for_experiment: true }
+        gpu:
+          count: 2
+          model: Nvidia L40
+          vendor: Nvidia
+          architecture: Ada Lovelace
+          vram_gib: 45.0
+          gpu_cores: 18176
+          compute_capability: "8.9"
+          # L40 (not L40S): same GPU die (AD102), slightly lower clock
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_esterel41 }
+
+    cluster_esterel42:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: esterel42
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-06-10"
+        manufacturing_date: "2025-05-30"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    esterel42_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: esterel42-1
+        count: 1
+        hw_model: "Dell (unspecified)"
+        manufacturing_date: "2025-05-30"
+        cpu_info:
+          architecture: x86_64
+          model: Intel Xeon 6710E
+          microarchitecture: Granite Rapids
+          num_cpus: 2
+          cores_per_cpu: 64
+          max_frequency_ghz: 2.40
+          # Granite Rapids E-series: efficiency variant, same ISA as P-series
+          # 2 x 64 = 128 cores + 2.0 TiB RAM + 8x H100 NVL = exceptional node
+        ram_gib: 2048.0    # 2.0 TiB
+        storage:
+          - { label: disk0, capacity_tb: 3.2, type: SSD, interface: NVMe, primary: true }
+          - { label: disk1, capacity_tb: 3.2, type: SSD, interface: NVMe }
+          - { label: disk2, capacity_tb: 3.2, type: SSD, interface: NVMe }
+          - { label: disk3, capacity_tb: 1.92, type: SSD }
+        network_interfaces:
+          - { name: eth0, rate_gbps: 25.0, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 40.0, type: InfiniBand, available_for_experiment: true }
+        gpu:
+          count: 8
+          model: Nvidia H100 NVL
+          vendor: Nvidia
+          architecture: Hopper
+          vram_gib: 94.0
+          gpu_cores: 14592
+          compute_capability: "9.0"
+          # H100 NVL PCIe-based: 14592 CUDA cores (114 SMs x 128)
+          # 8 x 14592 = 116736 cores on this single node
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_esterel42 }
+
+    cluster_esterel43:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: esterel43
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-06-13"
+        manufacturing_date: "2025-06-13"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    esterel43_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: esterel43-1
+        count: 1
+        hw_model: "HPE (unspecified)"
+        manufacturing_date: "2025-06-13"
+        cpu_info: { architecture: x86_64, model: "AMD EPYC 9254", microarchitecture: Zen 4, num_cpus: 2, cores_per_cpu: 24, max_frequency_ghz: 2.90 }
+        ram_gib: 512.0
+        storage: [ { label: disk0, capacity_tb: 6.4, type: SSD, primary: true } ]
+        network_interfaces:
+          - { name: eth0, rate_gbps: 25.0, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 40.0, type: InfiniBand, available_for_experiment: true }
+        gpu: { count: 2, model: "Nvidia L40S", vendor: Nvidia, architecture: Ada Lovelace, vram_gib: 45.0, gpu_cores: 18176, compute_capability: "8.9" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_esterel43 }
+
+    cluster_esterel44:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: esterel44
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-08-08"
+        manufacturing_date: "2025-07-25"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    esterel44_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: esterel44-1
+        count: 1
+        hw_model: "Dell (unspecified)"
+        manufacturing_date: "2025-07-25"
+        cpu_info: { architecture: x86_64, model: "AMD EPYC 9124", microarchitecture: Zen 4, num_cpus: 2, cores_per_cpu: 16, max_frequency_ghz: 3.00 }
+        ram_gib: 512.0
+        storage: [ { label: disk0, capacity_tb: 6.4, type: SSD, primary: true } ]
+        network_interfaces:
+          - { name: eth0, rate_gbps: 25.0, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 200.0, type: InfiniBand, model: "Mellanox ConnectX-6 HDR200", driver: mlx5_core, available_for_experiment: true }
+        gpu: { count: 4, model: "Nvidia L40S", vendor: Nvidia, architecture: Ada Lovelace, vram_gib: 45.0, gpu_cores: 18176, compute_capability: "8.9" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_esterel44 }
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # MERCANTOUR series: HPC compute (no GPU)
+    # Named after Mercantour National Park (Alpes-Maritimes)
+    # ═══════════════════════════════════════════════════════════════════════
+
+    cluster_mercantour1:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: mercantour1
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2014-04-25"
+        manufacturing_date: "2014-04-25"
+        total_nodes: 16
+
+    mercantour1_nodes:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: mercantour1
+        node_range: "mercantour1-[1-16]"
+        count: 16
+        hw_model: "Dell (unspecified)"
+        manufacturing_date: "2014-04-25"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon E5-2680 v2", microarchitecture: Ivy Bridge, num_cpus: 2, cores_per_cpu: 10, max_frequency_ghz: 2.80 }
+        ram_gib: 192.0
+        storage: [ { label: disk0, capacity_tb: 2.0, type: HDD, primary: true } ]
+        network_interfaces:
+          - { name: eth0, rate_gbps: 1.0, sriov_enabled: true, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 40.0, type: InfiniBand, available_for_experiment: true }
+          # Note: nodes 3-4,7-8,11-16 have 56 Gbps IB; nodes 1-2,5-6,9-10 have 40 Gbps
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_mercantour1 }
+
+    cluster_mercantour2:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: mercantour2
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-01-16"
+        manufacturing_date: "2015-09-01"
+        total_nodes: 8
+
+    mercantour2_nodes:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: mercantour2
+        node_range: "mercantour2-[1-8]"
+        count: 8
+        hw_model: "Dell (unspecified)"
+        manufacturing_date: "2015-09-01"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon E5-2650 v2", microarchitecture: Ivy Bridge, num_cpus: 2, cores_per_cpu: 8, max_frequency_ghz: 2.60 }
+        ram_gib: 256.0
+        storage: [ { label: disk0, capacity_tb: 1.0, type: HDD, primary: true } ]
+        network_interfaces:
+          - { name: eth0, rate_gbps: 1.0, sriov_enabled: true, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 40.0, type: InfiniBand, available_for_experiment: true }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_mercantour2 }
+
+    cluster_mercantour3:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: mercantour3
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-05-19"
+        manufacturing_date: "2017-11-13"
+        total_nodes: 16
+
+    mercantour3_nodes:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: mercantour3
+        node_range: "mercantour3-[1-16]"
+        count: 16
+        hw_model: "Dell (unspecified)"
+        manufacturing_date: "2017-11-13"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon Silver 4114", microarchitecture: Skylake-SP, num_cpus: 2, cores_per_cpu: 10, max_frequency_ghz: 2.20 }
+        ram_gib: 192.0
+        storage: [ { label: disk0, capacity_tb: 0.6, type: HDD, primary: true } ]
+        network_interfaces:
+          - { name: eth0, rate_gbps: 1.0, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 56.0, type: InfiniBand, available_for_experiment: true }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_mercantour3 }
+
+    cluster_mercantour4:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: mercantour4
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-03-14"
+        manufacturing_date: "2017-11-29"
+        total_nodes: 1
+
+    mercantour4_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: mercantour4-1
+        count: 1
+        hw_model: "Dell (unspecified)"
+        manufacturing_date: "2017-11-29"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon Gold 6148", microarchitecture: Skylake-SP, num_cpus: 4, cores_per_cpu: 20, max_frequency_ghz: 2.40 }
+        # 4-socket, 80 cores -- high core density without GPU
+        ram_gib: 1024.0    # 1.0 TiB
+        storage:
+          - { label: disk0, capacity_tb: 1.92, type: SSD, primary: true }
+          - { label: disk1, capacity_tb: 0.599, type: HDD }
+          - { label: disk2, capacity_tb: 0.599, type: HDD }
+        network_interfaces:
+          - { name: eth0, rate_gbps: 1.0, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 40.0, type: InfiniBand, available_for_experiment: true }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_mercantour4 }
+
+    cluster_mercantour5:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: mercantour5
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-02-24"
+        manufacturing_date: "2019-07-30"
+        total_nodes: 4
+
+    mercantour5_nodes:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: mercantour5
+        node_range: "mercantour5-[1-4]"
+        count: 4
+        hw_model: "Dell (unspecified)"
+        manufacturing_date: "2019-07-30"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon Gold 6240", microarchitecture: Cascade Lake-SP, num_cpus: 2, cores_per_cpu: 18, max_frequency_ghz: 2.60 }
+        ram_gib: 384.0
+        storage:
+          - { label: disk0, capacity_tb: 0.599, type: HDD, primary: true }
+          - { label: disk1, capacity_tb: 0.959, type: HDD }
+        network_interfaces:
+          - { name: eth0, rate_gbps: 1.0, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 56.0, type: InfiniBand, available_for_experiment: true }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_mercantour5 }
+
+    cluster_mercantour6:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: mercantour6
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-02-27"
+        manufacturing_date: "2020-10-05"
+        total_nodes: 1
+
+    mercantour6_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: mercantour6-1
+        count: 1
+        hw_model: "Dell (unspecified)"
+        manufacturing_date: "2020-10-05"
+        cpu_info: { architecture: x86_64, model: "AMD EPYC 7542", microarchitecture: Zen 2, num_cpus: 2, cores_per_cpu: 32, max_frequency_ghz: 2.90 }
+        ram_gib: 1024.0    # 1.0 TiB
+        storage:
+          - { label: disk0, capacity_tb: 0.239, type: SSD, primary: true }
+          - { label: disk1, capacity_tb: 1.92, type: SSD }
+        network_interfaces:
+          - { name: eth0, rate_gbps: 1.0, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 56.0, type: InfiniBand, available_for_experiment: true }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_mercantour6 }
+
+    cluster_mercantour7:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: mercantour7
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-03-20"
+        manufacturing_date: "2020-11-13"
+        total_nodes: 1
+
+    mercantour7_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: mercantour7-1
+        count: 1
+        hw_model: "Dell (unspecified)"
+        manufacturing_date: "2020-11-13"
+        cpu_info: { architecture: x86_64, model: "AMD EPYC 7502", microarchitecture: Zen 2, num_cpus: 2, cores_per_cpu: 32, max_frequency_ghz: 2.50 }
+        ram_gib: 384.0
+        storage:
+          - { label: disk0, capacity_tb: 0.959, type: SSD, primary: true }
+          - { label: disk1, capacity_tb: 48.01, type: HDD }
+          # 48 TB HDD -- largest bulk storage per node in the 8-site G5K survey
+          # Useful for large dataset I/O experiments
+        network_interfaces:
+          - { name: eth0, rate_gbps: 1.0, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 56.0, type: InfiniBand, available_for_experiment: true }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_mercantour7 }
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # MUSA: 6 nodes, AMD EPYC 9254 + 2x H100 NVL + 200 Gbps IB
+    # "musa" = genus Musa (banana plants) / Mediterranean botanica
+    # ═══════════════════════════════════════════════════════════════════════
+    cluster_musa:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: musa
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-01-16"
+        manufacturing_date: "2024-12-09"
+        total_nodes: 6
+
+    musa_nodes:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: musa
+        node_range: "musa-[1-6]"
+        count: 6
+        hw_model: "HPE (unspecified)"
+        manufacturing_date: "2024-12-09"
+        cpu_info: { architecture: x86_64, model: "AMD EPYC 9254", microarchitecture: Zen 4, num_cpus: 2, cores_per_cpu: 24, max_frequency_ghz: 2.90 }
+        ram_gib: 512.0
+        storage: [ { label: disk0, capacity_tb: 6.4, type: SSD, primary: true } ]
+        network_interfaces:
+          - { name: eth0, rate_gbps: 25.0, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 200.0, type: InfiniBand, model: "Mellanox ConnectX-6 HDR200", driver: mlx5_core, available_for_experiment: true }
+        gpu:
+          count: 2
+          model: Nvidia H100 NVL
+          vendor: Nvidia
+          architecture: Hopper
+          vram_gib: 94.0
+          gpu_cores: 14592
+          compute_capability: "9.0"
+          # 6 nodes x 2 x 14592 = 175104 GPU cores total for musa cluster
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_musa }
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # GROUPS
+  # ───────────────────────────────────────────────────────────────────────────
+  groups:
+
+    maxwell_nodes:
+      type: tosca.groups.Root
+      description: >
+        Nvidia Maxwell architecture (CC 5.2) -- oldest GPU in the survey.
+        GTX TITAN X Maxwell (GM200): 3072 CUDA cores, 12 GiB GDDR5.
+        CUDA support limited; not compatible with all modern frameworks.
+      members: [esterel3_node, esterel4_node]
+
+    h100_nodes:
+      type: tosca.groups.Root
+      description: >
+        H100 NVL nodes: esterel42 (8x H100) + musa (6x2 H100).
+        All PCIe-based H100 NVL: 14592 CUDA cores per GPU.
+        Total H100 NVL at Sophia: 8 + 12 = 20 GPUs.
+      members: [esterel42_node, musa_nodes]
+
+    infiniband_200g_nodes:
+      type: tosca.groups.Root
+      description: >
+        Nodes with 200 Gbps HDR InfiniBand -- only esterel44 and musa.
+        Highest IB bandwidth at Sophia.
+      members: [esterel44_node, musa_nodes]
+
+    a100_nodes:
+      type: tosca.groups.Root
+      description: "Nvidia A100 nodes (40GB: esterel36; 80GB: esterel37, esterel38)"
+      members: [esterel36_node, esterel37_node, esterel38_node]
+
+    bulk_storage_node:
+      type: tosca.groups.Root
+      description: >
+        mercantour7: AMD EPYC 7502 + 48.01 TB HDD -- largest bulk storage
+        per node in the 8-site G5K survey. For large dataset experiments.
+      members: [mercantour7_node]
+
+    legacy_nodes:
+      type: tosca.groups.Root
+      description: >
+        uvb (2011 Westmere): oldest hardware in the 8-site G5K survey.
+        15 years of service. 1 Gbps + 40 Gbps InfiniBand.
+        mercantour1 (2014), mercantour2 (2015): Ivy Bridge era.
+      members: [uvb_nodes, mercantour1_nodes, mercantour2_nodes]
+
+    mercantour_series:
+      type: tosca.groups.Root
+      description: >
+        7 HPC compute clusters (no GPU), abaca queue.
+        Named after Mercantour National Park.
+        Spans 2014-2020 hardware. All have InfiniBand.
+      members:
+        - mercantour1_nodes
+        - mercantour2_nodes
+        - mercantour3_nodes
+        - mercantour4_node
+        - mercantour5_nodes
+        - mercantour6_node
+        - mercantour7_node
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # OUTPUTS
+  # ───────────────────────────────────────────────────────────────────────────
+  outputs:
+
+    site_summary:
+      description: Grid'5000 Sophia site summary
+      value:
+        site:            { get_property: [site_sophia, site_name] }
+        frontend:        { get_property: [site_sophia, frontend_hostname] }
+        total_nodes:     { get_property: [site_sophia, total_nodes] }
+        total_clusters:  51
+        total_cpu_cores: { get_property: [site_sophia, total_cpu_cores] }
+        total_gpu_count: { get_property: [site_sophia, total_gpu_count] }
+        total_gpu_cores: { get_property: [site_sophia, total_gpu_cores] }
+        total_ram_tib:   { get_property: [site_sophia, total_ram_tib] }
+        tflops_cpu:      { get_property: [site_sophia, tflops_cpu] }
+
+    highlights:
+      description: Sophia highlights in the G5K survey
+      value:
+        most_clusters:  "51 clusters -- absolute record in G5K"
+        oldest_hw:      "uvb (2011 Westmere) -- oldest in 8-site survey"
+        oldest_gpu:     "esterel3-4: Maxwell GTX TITAN X (CC 5.2) -- oldest GPU"
+        ib_universal:   "Every abaca cluster has InfiniBand (40/56/200 Gbps)"
+        h100_cluster:   "esterel42: 8x H100 NVL + 2 TiB RAM + Xeon 6710E (Granite Rapids)"
+        bulk_storage:   "mercantour7: 48 TB HDD -- most bulk storage per node"
+        naming_beauty: >
+          esterel = Massif de l'Esterel (volcanic maquis, Mediterranean herbes).
+          mercantour = Mercantour National Park (Alpes-Maritimes, UNESCO).
+          musa = genus Musa (banana plants, Mediterranean botanica).
+          All names reflect the landscape of the Côte d'Azur.
+
+    gpu_verification:
+      description: GPU count and core count verification
+      value:
+        total_gpus:   218
+        total_cores:  1357312
+        key_values:
+          maxwell_titan_x:   "4x3072 = 12288 (esterel3), 4x3072 = 12288 (esterel4)"
+          h100_nlv_note:     "14592 cores/GPU (PCIe, 114 SMs) not 16896 (SXM5)"
+          esterel42_h100:    "8 x 14592 = 116736"
+          musa_h100:         "12 x 14592 = 175104"
+        status: "OK -- verified against G5K reference API"

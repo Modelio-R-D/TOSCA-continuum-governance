@@ -1,0 +1,663 @@
+tosca_definitions_version: tosca_simple_yaml_1_3
+
+description: >
+  TOSCA topology for the Grid'5000 Lille site.
+  Source: https://www.grid5000.fr/w/Lille:Hardware
+  Last API update: 2026-06-24 (commit 6f16201b82)
+  Summary: 5 clusters, 30 nodes, 1088 CPU cores, 52 GPUs,
+           352256 GPU cores, 10.0 TiB RAM, 317.82 TB storage,
+           58.9 TFLOPS CPU (excl. GPUs). All x86_64.
+  Highlights:
+    - chicoree (2026): Intel Granite Rapids + 4x Nvidia H200 NVL (140 GiB HBM3)
+      — newest hardware in our 8-site survey
+    - chuc: 8 nodes each with 4x A100-SXM4 in default queue (no exotic flag)
+    - chifflot: mixed P100/V100 in same cluster (successive upgrades)
+    - chiclet: first AMD EPYC (Zen 1) cluster in our survey
+    - 100% 25 Gbps network across the entire site
+
+metadata:
+  template_name:    Grid5000-Lille
+  template_version: "1.0.0"
+  template_author:  Generated from Grid5000 Reference API
+  site:             Lille
+  source_url:       https://www.grid5000.fr/w/Lille:Hardware
+  created:          "2026-09-15"
+
+data_types:
+
+  g5k.datatypes.CPUInfo:
+    derived_from: tosca.datatypes.Root
+    properties:
+      architecture:      { type: string, required: true }
+      model:             { type: string, required: false }
+      microarchitecture: { type: string, required: false }
+      num_cpus:          { type: integer, required: true }
+      cores_per_cpu:     { type: integer, required: true }
+      max_frequency_ghz: { type: float, required: false }
+
+  g5k.datatypes.StorageDisk:
+    derived_from: tosca.datatypes.Root
+    properties:
+      label:       { type: string, required: true }
+      capacity_tb: { type: float, required: true }
+      type:        { type: string, required: true }
+      interface:   { type: string, required: false }
+      model:       { type: string, required: false }
+      primary:     { type: boolean, default: false }
+      reservable:  { type: boolean, default: false }
+
+  g5k.datatypes.NetworkInterface:
+    derived_from: tosca.datatypes.Root
+    properties:
+      name:                     { type: string, required: true }
+      rate_gbps:                { type: float, required: true }
+      model:                    { type: string, required: false }
+      driver:                   { type: string, required: false }
+      sriov_enabled:            { type: boolean, default: false }
+      rdma_capable:             { type: boolean, default: false }
+      available_for_experiment: { type: boolean, default: true }
+
+  g5k.datatypes.GPUInfo:
+    derived_from: tosca.datatypes.Root
+    properties:
+      count:              { type: integer, required: true }
+      model:              { type: string, required: true }
+      vendor:             { type: string, required: false }
+      architecture:       { type: string, required: false }
+      vram_gib:           { type: float, required: true }
+      vram_type:          { type: string, required: false }
+      gpu_cores:          { type: integer, required: false }
+      tensor_cores:       { type: integer, required: false }
+      compute_capability: { type: string, required: false }
+      nvl_variant:
+        type: boolean
+        description: >
+          NVLink (NVL) variant: GPUs are interconnected via NVLink
+          and present as a unified memory pool to the host.
+        default: false
+
+node_types:
+
+  g5k.nodes.Site:
+    derived_from: tosca.nodes.Root
+    properties:
+      site_name:         { type: string, required: true }
+      location:          { type: string, required: false }
+      frontend_hostname: { type: string, required: false }
+      total_nodes:       { type: integer, required: false }
+      total_cpu_cores:   { type: integer, required: false }
+      total_gpu_count:   { type: integer, default: 0 }
+      total_gpu_cores:   { type: integer, default: 0 }
+      total_ram_tib:     { type: float, required: false }
+      total_storage_tb:  { type: float, required: false }
+      tflops_cpu:        { type: float, required: false }
+
+  g5k.nodes.Cluster:
+    derived_from: tosca.nodes.Root
+    properties:
+      cluster_name:       { type: string, required: true }
+      access_condition:   { type: string, default: default }
+      oar_queue:          { type: string, default: default }
+      date_of_arrival:    { type: string, required: false }
+      manufacturing_date: { type: string, required: false }
+      total_nodes:        { type: integer, required: false }
+      total_cores:        { type: integer, required: false }
+
+  g5k.nodes.ComputeNode:
+    derived_from: tosca.nodes.Compute
+    properties:
+      node_name:          { type: string, required: true }
+      node_range:         { type: string, required: false }
+      count:              { type: integer, required: true }
+      hw_model:           { type: string, required: false }
+      manufacturing_date: { type: string, required: false }
+      cpu_info:           { type: g5k.datatypes.CPUInfo, required: true }
+      ram_gib:            { type: float, required: true }
+      storage:            { type: list, entry_schema: { type: g5k.datatypes.StorageDisk }, required: false }
+      network_interfaces: { type: list, entry_schema: { type: g5k.datatypes.NetworkInterface }, required: false }
+      gpu:                { type: g5k.datatypes.GPUInfo, required: false }
+      supported_image_platforms: { type: list, entry_schema: { type: string }, required: false }
+
+topology_template:
+
+  node_templates:
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # SITE
+    # ═══════════════════════════════════════════════════════════════════════
+    site_lille:
+      type: g5k.nodes.Site
+      properties:
+        site_name:         Lille
+        location:          Lille, France
+        frontend_hostname: flille
+        total_nodes:       30
+        total_cpu_cores:   1088
+        total_gpu_count:   52
+        total_gpu_cores:   352256
+        total_ram_tib:     10.0
+        total_storage_tb:  317.82
+        tflops_cpu:        58.9
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # CLUSTER: chicoree — 1 node, Granite Rapids + H200 NVL, exotic (2026)
+    # Newest hardware in the 8-site G5K survey (manufactured 2026-03-04).
+    # H200 NVL: 4 GPUs with NVLink bridge = 560 GiB total GPU HBM3.
+    # ═══════════════════════════════════════════════════════════════════════
+    cluster_chicoree:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: chicoree
+        access_condition: exotic
+        oar_queue: default
+        date_of_arrival: "2026-04-03"
+        manufacturing_date: "2026-03-04"
+        total_nodes: 1
+        total_cores: 64
+
+    chicoree_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: chicoree-1
+        node_range: "chicoree-1"
+        count: 1
+        hw_model: HPE ProLiant DL380a Gen12
+        manufacturing_date: "2026-03-04"
+        cpu_info:
+          architecture: x86_64
+          model: Intel Xeon 6530P
+          microarchitecture: Granite Rapids
+          num_cpus: 2
+          cores_per_cpu: 32
+          max_frequency_ghz: 2.90
+        ram_gib: 1024.0
+        storage:
+          - { label: disk0, capacity_tb: 3.2, type: SSD, interface: NVMe, model: "HP MO003200KYDNC", primary: true }
+          - { label: disk1, capacity_tb: 3.2, type: SSD, interface: NVMe, model: "HP MO003200KYDNC" }
+          - { label: disk2, capacity_tb: 3.2, type: SSD, interface: NVMe, model: "HP MO003200KYDNC" }
+          - { label: disk3, capacity_tb: 3.2, type: SSD, interface: NVMe, model: "HP MO003200KYDNC" }
+        network_interfaces:
+          - name: eth0/enp1s0f0np0
+            rate_gbps: 25.0
+            model: Mellanox ConnectX-6 Lx
+            driver: mlx5_core
+            sriov_enabled: true
+            available_for_experiment: true
+          - name: eth1/enP1s27f1np1
+            rate_gbps: 25.0
+            model: Mellanox ConnectX-6 Lx
+            driver: mlx5_core
+            sriov_enabled: true
+            available_for_experiment: true
+        gpu:
+          count: 4
+          model: Nvidia H200 NVL
+          vendor: Nvidia
+          architecture: Hopper
+          vram_gib: 140.0
+          vram_type: HBM3
+          gpu_cores: 16896
+          tensor_cores: 528
+          compute_capability: "9.0"
+          nvl_variant: true
+          # NVL: 4 GPUs interconnected via NVLink.
+          # Each H200 NVL = 141 GiB HBM3. 4x = 560 GiB total GPU memory.
+          # NVLink allows peer-to-peer access across all 4 GPUs at ~900 GB/s.
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_chicoree }
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # CLUSTER: chiclet — 8 nodes, AMD EPYC 7301 (Zen 1), default
+    # First AMD EPYC cluster in our 8-site survey (2018, Zen gen 1).
+    # 2 sub-groups: nodes 1-7 (2 HDDs), node 8 (1 HDD).
+    # ═══════════════════════════════════════════════════════════════════════
+    cluster_chiclet:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: chiclet
+        access_condition: default
+        oar_queue: default
+        date_of_arrival: "2018-08-06"
+        manufacturing_date: "2018-07-27"
+        total_nodes: 8
+        total_cores: 256
+
+    chiclet_group_a:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: chiclet
+        node_range: "chiclet-[1-7]"
+        count: 7
+        hw_model: Dell PowerEdge R7425
+        manufacturing_date: "2018-07-27"
+        cpu_info:
+          architecture: x86_64
+          model: AMD EPYC 7301
+          microarchitecture: Zen
+          num_cpus: 2
+          cores_per_cpu: 16
+          max_frequency_ghz: 2.20
+        ram_gib: 128.0
+        storage:
+          - { label: disk0, capacity_tb: 0.48, type: SSD, interface: SAS, model: "Toshiba PX05SVB048Y", primary: true }
+          - { label: disk1, capacity_tb: 4.0,  type: HDD, interface: SAS, model: "Seagate ST4000NM0295", reservable: true }
+          - { label: disk2, capacity_tb: 4.0,  type: HDD, interface: SAS, model: "Seagate ST4000NM0295", reservable: true }
+        network_interfaces:
+          - { name: eth0/enp98s0f0, rate_gbps: 25.0, model: "Intel XXV710 25GbE SFP28", driver: i40e, available_for_experiment: true }
+          - { name: eth1/enp98s0f1, rate_gbps: 25.0, model: "Intel XXV710 25GbE SFP28", driver: i40e, available_for_experiment: true }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_chiclet }
+
+    chiclet_node_8:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: chiclet-8
+        node_range: "chiclet-8"
+        count: 1
+        hw_model: Dell PowerEdge R7425
+        manufacturing_date: "2018-07-27"
+        cpu_info:
+          architecture: x86_64
+          model: AMD EPYC 7301
+          microarchitecture: Zen
+          num_cpus: 2
+          cores_per_cpu: 16
+          max_frequency_ghz: 2.20
+        ram_gib: 128.0
+        storage:
+          - { label: disk0, capacity_tb: 0.48, type: SSD, interface: SAS, model: "Toshiba PX05SVB048Y", primary: true }
+          - { label: disk1, capacity_tb: 4.0,  type: HDD, interface: SAS, model: "Seagate ST4000NM0295", reservable: true }
+        network_interfaces:
+          - { name: eth0/enp98s0f0, rate_gbps: 25.0, model: "Intel XXV710 25GbE SFP28", driver: i40e, available_for_experiment: true }
+          - { name: eth1/enp98s0f1, rate_gbps: 25.0, model: "Intel XXV710 25GbE SFP28", driver: i40e, available_for_experiment: true }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_chiclet }
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # CLUSTER: chifflot — 8 nodes, Skylake-SP + mixed P100/V100, default
+    # Nodes 1-6: 2x P100-PCIE-16GB (CC 6.0)
+    # Nodes 7-8: 2x V100-PCIE-32GB (CC 7.0) — later upgrade
+    # Complex sub-groups due to HDD model variations and NIC availability.
+    # Condensed: 4 logical groups covering all 8 nodes.
+    # ═══════════════════════════════════════════════════════════════════════
+    cluster_chifflot:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: chifflot
+        access_condition: default
+        oar_queue: default
+        date_of_arrival: "2018-08-01"
+        manufacturing_date: "2018-07-17"
+        total_nodes: 8
+        total_cores: 192
+
+    # chifflot-[1,5,6]: dual NIC, P100, Seagate HDDs
+    chifflot_p100_dual_nic:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: chifflot
+        node_range: "chifflot-[1,5,6]"
+        count: 3
+        hw_model: Dell PowerEdge R740
+        manufacturing_date: "2018-07-17"
+        cpu_info:
+          architecture: x86_64
+          model: Intel Xeon Gold 6126
+          microarchitecture: Skylake-SP
+          num_cpus: 2
+          cores_per_cpu: 12
+          max_frequency_ghz: 2.60
+        ram_gib: 192.0
+        storage:
+          - { label: disk0, capacity_tb: 0.48, type: SSD, interface: SATA, model: "Intel SSDSC2KG480G7R", primary: true }
+          - { label: disk1, capacity_tb: 0.48, type: SSD, interface: SATA, model: "Intel SSDSC2KG480G7R", reservable: true }
+          - { label: disk2, capacity_tb: 4.0,  type: HDD, interface: SAS, model: "Seagate ST4000NM0295", reservable: true }
+          - { label: disk3, capacity_tb: 4.0,  type: HDD, interface: SAS, model: "Seagate ST4000NM0295", reservable: true }
+          - { label: disk4, capacity_tb: 4.0,  type: HDD, interface: SAS, model: "Seagate ST4000NM0295", reservable: true }
+          - { label: disk5, capacity_tb: 4.0,  type: HDD, interface: SAS, model: "Seagate ST4000NM0295", reservable: true }
+        network_interfaces:
+          - { name: eth0/ens5f0, rate_gbps: 25.0, model: "Intel XXV710 25GbE SFP28", driver: i40e, available_for_experiment: true }
+          - { name: eth1/ens5f1, rate_gbps: 25.0, model: "Intel XXV710 25GbE SFP28", driver: i40e, available_for_experiment: true }
+        gpu:
+          count: 2
+          model: Nvidia Tesla P100-PCIE-16GB
+          vendor: Nvidia
+          architecture: Pascal
+          vram_gib: 16.0
+          vram_type: HBM2
+          gpu_cores: 3584
+          compute_capability: "6.0"
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_chifflot }
+
+    # chifflot-[2]: dual NIC, P100, mixed Toshiba/Seagate HDDs (3 HDD)
+    chifflot_node_2:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: chifflot-2
+        node_range: "chifflot-2"
+        count: 1
+        hw_model: Dell PowerEdge R740
+        manufacturing_date: "2018-07-17"
+        cpu_info:
+          architecture: x86_64
+          model: Intel Xeon Gold 6126
+          microarchitecture: Skylake-SP
+          num_cpus: 2
+          cores_per_cpu: 12
+          max_frequency_ghz: 2.60
+        ram_gib: 192.0
+        storage:
+          - { label: disk0, capacity_tb: 0.48, type: SSD, interface: SATA, model: "Intel SSDSC2KG480G7R", primary: true }
+          - { label: disk1, capacity_tb: 0.48, type: SSD, interface: SATA, model: "Intel SSDSC2KG480G7R", reservable: true }
+          - { label: disk3, capacity_tb: 4.0,  type: HDD, interface: SAS, model: "Toshiba MG04SCA40ENY", reservable: true }
+          - { label: disk4, capacity_tb: 4.0,  type: HDD, interface: SAS, model: "Seagate ST4000NM0295", reservable: true }
+          - { label: disk5, capacity_tb: 4.0,  type: HDD, interface: SAS, model: "Seagate ST4000NM0295", reservable: true }
+        network_interfaces:
+          - { name: eth0/ens5f0, rate_gbps: 25.0, model: "Intel XXV710", driver: i40e, available_for_experiment: true }
+          - { name: eth1/ens5f1, rate_gbps: 25.0, model: "Intel XXV710", driver: i40e, available_for_experiment: true }
+        gpu: { count: 2, model: "Nvidia Tesla P100-PCIE-16GB", vendor: Nvidia, architecture: Pascal, vram_gib: 16.0, vram_type: HBM2, gpu_cores: 3584, compute_capability: "6.0" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_chifflot }
+
+    # chifflot-[3,4]: single NIC (eth1 unavailable), P100, Toshiba/Seagate HDDs
+    chifflot_p100_single_nic:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: chifflot
+        node_range: "chifflot-[3,4]"
+        count: 2
+        hw_model: Dell PowerEdge R740
+        manufacturing_date: "2018-07-17"
+        cpu_info:
+          architecture: x86_64
+          model: Intel Xeon Gold 6126
+          microarchitecture: Skylake-SP
+          num_cpus: 2
+          cores_per_cpu: 12
+          max_frequency_ghz: 2.60
+        ram_gib: 192.0
+        storage:
+          - { label: disk0, capacity_tb: 0.48, type: SSD, interface: SATA, model: "Intel SSDSC2KG480G7R", primary: true }
+          - { label: disk1, capacity_tb: 0.48, type: SSD, interface: SATA, model: "Intel SSDSC2KG480G7R", reservable: true }
+          - { label: disk2, capacity_tb: 4.0,  type: HDD, interface: SAS, model: "Toshiba MG04SCA40ENY", reservable: true }
+          - { label: disk3, capacity_tb: 4.0,  type: HDD, interface: SAS, model: "Toshiba MG04SCA40ENY", reservable: true }
+          - { label: disk4, capacity_tb: 4.0,  type: HDD, interface: SAS, model: "Toshiba MG04SCA40ENY", reservable: true }
+          - { label: disk5, capacity_tb: 4.0,  type: HDD, interface: SAS, model: "Toshiba MG04SCA40ENY", reservable: true }
+        network_interfaces:
+          - { name: eth0/ens5f0, rate_gbps: 25.0, model: "Intel XXV710", driver: i40e, available_for_experiment: true }
+          - { name: eth1/ens5f1, rate_gbps: 25.0, model: "Intel XXV710", driver: i40e, available_for_experiment: false }
+        gpu: { count: 2, model: "Nvidia Tesla P100-PCIE-16GB", vendor: Nvidia, architecture: Pascal, vram_gib: 16.0, vram_type: HBM2, gpu_cores: 3584, compute_capability: "6.0" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_chifflot }
+
+    # chifflot-[7,8]: dual NIC, V100-PCIE-32GB (upgraded), Hitachi HDDs
+    chifflot_v100:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: chifflot
+        node_range: "chifflot-[7-8]"
+        count: 2
+        hw_model: Dell PowerEdge R740
+        manufacturing_date: "2018-07-17"
+        cpu_info:
+          architecture: x86_64
+          model: Intel Xeon Gold 6126
+          microarchitecture: Skylake-SP
+          num_cpus: 2
+          cores_per_cpu: 12
+          max_frequency_ghz: 2.60
+        ram_gib: 192.0
+        storage:
+          - { label: disk0, capacity_tb: 0.48, type: SSD, interface: SATA, model: "Intel SSDSC2KG480G7R", primary: true }
+          - { label: disk1, capacity_tb: 0.48, type: SSD, interface: SATA, model: "Intel SSDSC2KG480G7R", reservable: true }
+          - { label: disk2, capacity_tb: 4.0,  type: HDD, interface: SAS, model: "Hitachi HUS726040ALS210", reservable: true }
+          - { label: disk3, capacity_tb: 4.0,  type: HDD, interface: SAS, model: "Hitachi HUS726040ALS210", reservable: true }
+          - { label: disk4, capacity_tb: 4.0,  type: HDD, interface: SAS, model: "Hitachi HUS726040ALS210", reservable: true }
+          - { label: disk5, capacity_tb: 4.0,  type: HDD, interface: SAS, model: "Hitachi HUS726040ALS210", reservable: true }
+        network_interfaces:
+          - { name: eth0/ens5f0, rate_gbps: 25.0, model: "Intel XXV710 25GbE SFP28", driver: i40e, available_for_experiment: true }
+          - { name: eth1/ens5f1, rate_gbps: 25.0, model: "Intel XXV710 25GbE SFP28", driver: i40e, available_for_experiment: true }
+        gpu:
+          count: 2
+          model: Nvidia Tesla V100-PCIE-32GB
+          vendor: Nvidia
+          architecture: Volta
+          vram_gib: 32.0
+          vram_type: HBM2
+          gpu_cores: 5120
+          tensor_cores: 640
+          compute_capability: "7.0"
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_chifflot }
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # CLUSTER: chirop — 5 nodes, Xeon Platinum 8358, 512 GiB, default
+    # No GPU. RDMA-capable NICs (Broadcom BCM57414).
+    # All-SSD storage: 1.92 TB NVMe + 2x 3.84 TB SATA SSD.
+    # ═══════════════════════════════════════════════════════════════════════
+    cluster_chirop:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: chirop
+        access_condition: default
+        oar_queue: default
+        date_of_arrival: "2024-01-25"
+        manufacturing_date: "2023-05-02"
+        total_nodes: 5
+        total_cores: 320
+
+    chirop_nodes:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: chirop
+        node_range: "chirop-[1-5]"
+        count: 5
+        hw_model: HPE DL360 Gen10+
+        manufacturing_date: "2023-05-02"
+        cpu_info:
+          architecture: x86_64
+          model: Intel Xeon Platinum 8358
+          microarchitecture: Ice Lake-SP
+          num_cpus: 2
+          cores_per_cpu: 32
+          max_frequency_ghz: 2.60
+        ram_gib: 512.0
+        storage:
+          - { label: disk0, capacity_tb: 1.92, type: SSD, interface: NVMe,  model: "Kioxia KCD6XLUL1T92", primary: true }
+          - { label: disk1, capacity_tb: 3.84, type: SSD, interface: SATA,  model: "HP VK003840GWSRV" }
+          - { label: disk2, capacity_tb: 3.84, type: SSD, interface: SATA,  model: "HP VK003840GWSRV" }
+        network_interfaces:
+          - name: eth0/ens10f0np0
+            rate_gbps: 25.0
+            model: Broadcom BCM57414 NetXtreme-E RDMA
+            driver: bnxt_en
+            rdma_capable: true
+            available_for_experiment: true
+          - name: eth1/ens10f1np1
+            rate_gbps: 25.0
+            model: Broadcom BCM57414 NetXtreme-E RDMA
+            driver: bnxt_en
+            rdma_capable: true
+            available_for_experiment: true
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_chirop }
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # CLUSTER: chuc — 8 nodes, AMD EPYC 7513 (Zen 3) + 4x A100-SXM4, default
+    # 32 A100 GPUs in the default queue — no exotic flag required.
+    # Single-socket AMD EPYC 7513 (32 cores) + 512 GiB RAM per node.
+    # All-SSD storage: 4x 1.92 TB SAS.
+    # ═══════════════════════════════════════════════════════════════════════
+    cluster_chuc:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: chuc
+        access_condition: default
+        oar_queue: default
+        date_of_arrival: "2024-01-22"
+        manufacturing_date: "2023-05-02"
+        total_nodes: 8
+        total_cores: 256
+
+    chuc_nodes:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: chuc
+        node_range: "chuc-[1-8]"
+        count: 8
+        hw_model: HPE Apollo 6500 Gen10 Plus
+        manufacturing_date: "2023-05-02"
+        cpu_info:
+          architecture: x86_64
+          model: AMD EPYC 7513
+          microarchitecture: Zen 3
+          num_cpus: 1
+          cores_per_cpu: 32
+          max_frequency_ghz: 2.60
+        ram_gib: 512.0
+        storage:
+          - { label: disk0, capacity_tb: 1.92, type: SSD, interface: SAS, model: "HPE VO001920RZWUV", primary: true }
+          - { label: disk1, capacity_tb: 1.92, type: SSD, interface: SAS, model: "HPE VO001920RZWUV" }
+          - { label: disk2, capacity_tb: 1.92, type: SSD, interface: SAS, model: "HPE VO001920RZWUV" }
+          - { label: disk3, capacity_tb: 1.92, type: SSD, interface: SAS, model: "HPE VO001920RZWUV" }
+        network_interfaces:
+          - name: eth0/ens15f0np0
+            rate_gbps: 25.0
+            model: Mellanox ConnectX-5
+            driver: mlx5_core
+            sriov_enabled: true
+            available_for_experiment: true
+          - name: eth1/ens15f1np1
+            rate_gbps: 25.0
+            model: Mellanox ConnectX-5
+            driver: mlx5_core
+            sriov_enabled: true
+            available_for_experiment: true
+        gpu:
+          count: 4
+          model: Nvidia A100-SXM4-40GB
+          vendor: Nvidia
+          architecture: Ampere
+          vram_gib: 40.0
+          vram_type: HBM2e
+          gpu_cores: 6912
+          tensor_cores: 432
+          compute_capability: "8.0"
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_chuc }
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # GROUPS
+  # ───────────────────────────────────────────────────────────────────────────
+  groups:
+
+    h200_nodes:
+      type: tosca.groups.Root
+      description: >
+        Nvidia H200 NVL nodes (chicoree, 2026) — newest GPU in G5K survey.
+        4x H200 NVL per node with NVLink interconnect: 4 x 140 GiB = 560 GiB
+        total GPU HBM3 on a single node. CC 9.0 (Hopper architecture).
+        Exotic access required.
+      members: [chicoree_node]
+
+    a100_default_queue:
+      type: tosca.groups.Root
+      description: >
+        8 nodes each with 4x A100-SXM4-40GB in the DEFAULT queue.
+        32 A100 GPUs accessible without exotic flag — unique across the survey.
+        Zen 3 single-socket (32 cores) + 512 GiB RAM + all-SSD storage.
+      members: [chuc_nodes]
+
+    p100_nodes:
+      type: tosca.groups.Root
+      description: "Nodes with P100-PCIE-16GB GPUs (chifflot-[1-6], CC 6.0)"
+      members: [chifflot_p100_dual_nic, chifflot_node_2, chifflot_p100_single_nic]
+
+    v100_nodes:
+      type: tosca.groups.Root
+      description: "Nodes with V100-PCIE-32GB GPUs (chifflot-[7-8], CC 7.0)"
+      members: [chifflot_v100]
+
+    high_memory_nodes:
+      type: tosca.groups.Root
+      description: Nodes with >= 512 GiB RAM
+      members: [chicoree_node, chirop_nodes, chuc_nodes]
+
+    rdma_nodes:
+      type: tosca.groups.Root
+      description: "Nodes with RDMA-capable NICs (Broadcom BCM57414, chirop)"
+      members: [chirop_nodes]
+
+    all_ssd_nodes:
+      type: tosca.groups.Root
+      description: Clusters with exclusively SSD storage (no HDD)
+      members: [chicoree_node, chirop_nodes, chuc_nodes]
+
+    default_queue_gpu_nodes:
+      type: tosca.groups.Root
+      description: GPU nodes accessible without exotic OAR job type
+      members: [chifflot_p100_dual_nic, chifflot_node_2, chifflot_p100_single_nic, chifflot_v100, chuc_nodes]
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # OUTPUTS
+  # ───────────────────────────────────────────────────────────────────────────
+  outputs:
+
+    site_summary:
+      description: Grid'5000 Lille site summary
+      value:
+        site:            { get_property: [site_lille, site_name] }
+        frontend:        { get_property: [site_lille, frontend_hostname] }
+        total_nodes:     { get_property: [site_lille, total_nodes] }
+        total_cpu_cores: { get_property: [site_lille, total_cpu_cores] }
+        total_gpu_count: { get_property: [site_lille, total_gpu_count] }
+        total_gpu_cores: { get_property: [site_lille, total_gpu_cores] }
+        total_ram_tib:   { get_property: [site_lille, total_ram_tib] }
+
+    gpu_breakdown:
+      description: GPU inventory verification
+      value:
+        chicoree:
+          gpus: "4x H200 NVL (140 GiB HBM3, CC 9.0)"
+          cores: 67584
+        chifflot_p100:
+          gpus: "12x P100-PCIE-16GB (CC 6.0)"
+          cores: 43008
+        chifflot_v100:
+          gpus: "4x V100-PCIE-32GB (CC 7.0)"
+          cores: 20480
+        chuc:
+          gpus: "32x A100-SXM4-40GB (CC 8.0)"
+          cores: 221184
+        total_gpus: 52
+        total_cores: 352256
+        verification: "OK — matches G5K reference API"
+
+    highlights:
+      description: What makes Lille notable in the G5K survey
+      value:
+        newest_hardware: >
+          chicoree (manufactured 2026-03-04) is the newest hardware in
+          the 8-site survey. Intel Granite Rapids (Xeon 6530P) and
+          Nvidia H200 NVL represent the current frontier of HPC hardware.
+        a100_default_access: >
+          chuc provides 32 A100-SXM4 GPUs in the DEFAULT queue.
+          No exotic flag required. This is exceptional — most large GPU
+          clusters require exotic or reserved access.
+        network_consistency: >
+          Every cluster uses 25 Gbps — perfectly uniform network fabric
+          across the site, simplifying multi-cluster experiments.
+        first_zen1_epyc: >
+          chiclet (2018) is the only AMD EPYC Zen 1 (Naples) cluster
+          in our 8-site survey, predating the Zen 2 EPYC clusters
+          at Lyon (neowise/sirius) and Lille (chuc).

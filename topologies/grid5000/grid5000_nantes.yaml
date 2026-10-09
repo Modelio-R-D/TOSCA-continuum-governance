@@ -1,0 +1,718 @@
+tosca_definitions_version: tosca_simple_yaml_1_3
+
+description: >
+  TOSCA topology for the Grid'5000 Nantes site.
+  Source: https://www.grid5000.fr/w/Nantes:Hardware
+  Last API update: 2026-02-26 (commit 82ff639283)
+  Summary: 3 clusters, 74 nodes, 1456 CPU cores, 6 GPUs,
+           41472 GPU cores, 8.0 TiB RAM, 39.3 TFLOPS (excl. GPUs).
+
+metadata:
+  template_name:    Grid5000-Nantes
+  template_version: "1.0.0"
+  template_author:  Generated from Grid5000 Reference API
+  site:             Nantes
+  source_url:       https://www.grid5000.fr/w/Nantes:Hardware
+  created:          "2026-08-31"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DATA TYPES
+# ─────────────────────────────────────────────────────────────────────────────
+data_types:
+
+  g5k.datatypes.CPUInfo:
+    derived_from: tosca.datatypes.Root
+    properties:
+      architecture:
+        type: string
+        description: "ISA: x86_64, aarch64, armv7, ..."
+        required: true
+      model:
+        type: string
+        required: false
+      microarchitecture:
+        type: string
+        description: "e.g. Sandy Bridge, Zen 3, Broadwell"
+        required: false
+      num_cpus:
+        type: integer
+        description: Number of CPU sockets per node
+        required: true
+      cores_per_cpu:
+        type: integer
+        required: true
+      max_frequency_ghz:
+        type: float
+        required: false
+
+  g5k.datatypes.StorageDisk:
+    derived_from: tosca.datatypes.Root
+    properties:
+      label:
+        type: string
+        description: "disk0, disk1, ..."
+        required: true
+      capacity_tb:
+        type: float
+        required: true
+      type:
+        type: string
+        description: "HDD, SSD"
+        required: true
+      interface:
+        type: string
+        description: "SATA, SAS, NVMe"
+        required: false
+      model:
+        type: string
+        required: false
+      primary:
+        type: boolean
+        default: false
+
+  g5k.datatypes.NetworkInterface:
+    derived_from: tosca.datatypes.Root
+    properties:
+      name:
+        type: string
+        required: true
+      rate_gbps:
+        type: float
+        required: true
+      model:
+        type: string
+        required: false
+      driver:
+        type: string
+        required: false
+      sriov_enabled:
+        type: boolean
+        default: false
+      available_for_experiment:
+        type: boolean
+        default: true
+
+  g5k.datatypes.GPUInfo:
+    derived_from: tosca.datatypes.Root
+    properties:
+      count:
+        type: integer
+        required: true
+      model:
+        type: string
+        required: true
+      vram_gib:
+        type: float
+        required: true
+      compute_capability:
+        type: string
+        required: false
+      gpu_cores:
+        type: integer
+        required: false
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NODE TYPES
+# ─────────────────────────────────────────────────────────────────────────────
+node_types:
+
+  g5k.nodes.Site:
+    derived_from: tosca.nodes.Root
+    properties:
+      site_name:
+        type: string
+        required: true
+      location:
+        type: string
+        required: false
+      frontend_hostname:
+        type: string
+        required: false
+      total_nodes:
+        type: integer
+        required: false
+      total_cpu_cores:
+        type: integer
+        required: false
+      total_ram_tib:
+        type: float
+        required: false
+      tflops_cpu:
+        type: float
+        description: CPU-only TFLOPS
+        required: false
+    requirements:
+      - clusters:
+          capability: tosca.capabilities.Node
+          relationship: tosca.relationships.HostedOn
+          occurrences: [1, UNBOUNDED]
+
+  g5k.nodes.Cluster:
+    derived_from: tosca.nodes.Root
+    properties:
+      cluster_name:
+        type: string
+        required: true
+      access_condition:
+        type: string
+        description: "default, exotic, ..."
+        default: default
+      oar_queue:
+        type: string
+        default: default
+      date_of_arrival:
+        type: string
+        required: false
+      manufacturing_date:
+        type: string
+        required: false
+      total_nodes:
+        type: integer
+        required: false
+      total_cores:
+        type: integer
+        required: false
+    requirements:
+      - nodes:
+          capability: tosca.capabilities.Compute
+          relationship: tosca.relationships.HostedOn
+          occurrences: [1, UNBOUNDED]
+
+  g5k.nodes.ComputeNode:
+    derived_from: tosca.nodes.Compute
+    properties:
+      node_name:
+        type: string
+        required: true
+      node_range:
+        type: string
+        description: "e.g. econome-[1-10,12-22]"
+        required: false
+      count:
+        type: integer
+        description: Number of identical nodes in this group
+        required: true
+      hw_model:
+        type: string
+        description: "e.g. Dell PowerEdge C6220"
+        required: false
+      manufacturing_date:
+        type: string
+        required: false
+      cpu_info:
+        type: g5k.datatypes.CPUInfo
+        required: true
+      ram_gib:
+        type: float
+        required: true
+      storage:
+        type: list
+        entry_schema:
+          type: g5k.datatypes.StorageDisk
+        required: false
+      network_interfaces:
+        type: list
+        entry_schema:
+          type: g5k.datatypes.NetworkInterface
+        required: false
+      gpu:
+        type: g5k.datatypes.GPUInfo
+        required: false
+      supported_image_platforms:
+        type: list
+        entry_schema:
+          type: string
+        default: [linux/amd64]
+    capabilities:
+      host:
+        type: tosca.capabilities.Compute
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TOPOLOGY TEMPLATE
+# ─────────────────────────────────────────────────────────────────────────────
+topology_template:
+
+  description: >
+    Grid'5000 Nantes site topology: clusters econome (24 nodes),
+    ecotaxe (2 nodes, GPU/exotic), ecotype (48 nodes).
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # INPUTS
+  # ───────────────────────────────────────────────────────────────────────────
+  inputs:
+    oar_queue:
+      type: string
+      default: default
+      description: OAR scheduler queue for job submission
+      constraints:
+        - valid_values: [default, production, besteffort]
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # NODE TEMPLATES
+  # ───────────────────────────────────────────────────────────────────────────
+  node_templates:
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # SITE: Nantes
+    # ═══════════════════════════════════════════════════════════════════════
+    site_nantes:
+      type: g5k.nodes.Site
+      properties:
+        site_name: Nantes
+        location: Nantes, France
+        frontend_hostname: fnantes
+        total_nodes: 74
+        total_cpu_cores: 1456
+        total_ram_tib: 8.0
+        tflops_cpu: 39.3
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # CLUSTER: econome
+    # 24 nodes — Intel Xeon E5-2660 (Sandy Bridge) — 64 GiB — HDD 2 TB
+    # Default queue, no special access condition
+    # ═══════════════════════════════════════════════════════════════════════
+    cluster_econome:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: econome
+        access_condition: default
+        oar_queue: default
+        date_of_arrival: "2014-04-16"
+        manufacturing_date: "2012-06-28"
+        total_nodes: 24
+        total_cores: 384   # 24 nodes x 2 CPUs x 8 cores
+      requirements:
+        - nodes:
+            node: site_nantes
+
+    # --- econome group A: nodes 1-10, 12-22 (21 nodes) ---
+    # NIC: Intel 82599ES 10G SFI/SFP+
+    econome_group_a:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: econome
+        node_range: "econome-[1-10,12-22]"
+        count: 21
+        hw_model: Dell PowerEdge C6220
+        manufacturing_date: "2012-06-28"
+        cpu_info:
+          architecture: x86_64
+          model: Intel Xeon E5-2660
+          microarchitecture: Sandy Bridge
+          num_cpus: 2
+          cores_per_cpu: 8
+          max_frequency_ghz: 2.20
+        ram_gib: 64.0
+        storage:
+          - label: disk0
+            capacity_tb: 2.0
+            type: HDD
+            interface: SATA
+            model: Western Digital WDC WD2003FYYS-1
+            primary: true
+        network_interfaces:
+          - name: eth0/enp3s0f0
+            rate_gbps: 10.0
+            model: Intel 82599ES 10-Gigabit SFI/SFP+ Network Connection
+            driver: ixgbe
+            sriov_enabled: true
+            available_for_experiment: true
+          - name: eth1/enp3s0f1
+            rate_gbps: 10.0
+            model: Intel 82599ES 10-Gigabit SFI/SFP+ Network Connection
+            driver: ixgbe
+            sriov_enabled: false
+            available_for_experiment: false
+          - name: eth2/eno1
+            rate_gbps: 1.0
+            model: Intel I350 Gigabit Network Connection
+            driver: igb
+            sriov_enabled: false
+            available_for_experiment: false
+          - name: eth3/eno2
+            rate_gbps: 1.0
+            model: Intel I350 Gigabit Network Connection
+            driver: igb
+            sriov_enabled: false
+            available_for_experiment: false
+        supported_image_platforms:
+          - linux/amd64
+      capabilities:
+        host:
+          properties:
+            num_cpus: 16
+            cpu_frequency: 2200 MHz
+            mem_size: 64 GiB
+      requirements:
+        - host:
+            node: cluster_econome
+
+    # --- econome group B: nodes 11, 23 (2 nodes) ---
+    # NIC: Intel Ethernet 10G 2P X520 (different from group A)
+    econome_group_b:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: econome
+        node_range: "econome-[11,23]"
+        count: 2
+        hw_model: Dell PowerEdge C6220
+        manufacturing_date: "2012-06-28"
+        cpu_info:
+          architecture: x86_64
+          model: Intel Xeon E5-2660
+          microarchitecture: Sandy Bridge
+          num_cpus: 2
+          cores_per_cpu: 8
+          max_frequency_ghz: 2.20
+        ram_gib: 64.0
+        storage:
+          - label: disk0
+            capacity_tb: 2.0
+            type: HDD
+            interface: SATA
+            model: Western Digital WDC WD2003FYYS-1
+            primary: true
+        network_interfaces:
+          - name: eth0/enp3s0f0
+            rate_gbps: 10.0
+            model: Intel Ethernet 10G 2P X520 Adapter
+            driver: ixgbe
+            sriov_enabled: true
+            available_for_experiment: true
+          - name: eth1/enp3s0f1
+            rate_gbps: 10.0
+            model: Intel Ethernet 10G 2P X520 Adapter
+            driver: ixgbe
+            sriov_enabled: false
+            available_for_experiment: false
+          - name: eth2/eno1
+            rate_gbps: 1.0
+            model: Intel I350 Gigabit Network Connection
+            driver: igb
+            sriov_enabled: false
+            available_for_experiment: false
+          - name: eth3/eno2
+            rate_gbps: 1.0
+            model: Intel I350 Gigabit Network Connection
+            driver: igb
+            sriov_enabled: false
+            available_for_experiment: false
+        supported_image_platforms:
+          - linux/amd64
+      capabilities:
+        host:
+          properties:
+            num_cpus: 16
+            cpu_frequency: 2200 MHz
+            mem_size: 64 GiB
+      requirements:
+        - host:
+            node: cluster_econome
+
+    # --- econome node 24 (1 node) ---
+    # Fewer NICs than groups A/B
+    econome_node_24:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: econome-24
+        node_range: "econome-24"
+        count: 1
+        hw_model: Dell PowerEdge C6220
+        manufacturing_date: "2012-06-28"
+        cpu_info:
+          architecture: x86_64
+          model: Intel Xeon E5-2660
+          microarchitecture: Sandy Bridge
+          num_cpus: 2
+          cores_per_cpu: 8
+          max_frequency_ghz: 2.20
+        ram_gib: 64.0
+        storage:
+          - label: disk0
+            capacity_tb: 2.0
+            type: HDD
+            interface: SATA
+            model: Western Digital WDC WD2003FYYS-1
+            primary: true
+        network_interfaces:
+          - name: eth0/enp3s0f0
+            rate_gbps: 10.0
+            model: Intel Ethernet 10G 2P X520 Adapter
+            driver: ixgbe
+            sriov_enabled: true
+            available_for_experiment: true
+          - name: eth1/enp3s0f1
+            rate_gbps: 10.0
+            model: Intel Ethernet 10G 2P X520 Adapter
+            driver: ixgbe
+            sriov_enabled: false
+            available_for_experiment: false
+        supported_image_platforms:
+          - linux/amd64
+      capabilities:
+        host:
+          properties:
+            num_cpus: 16
+            cpu_frequency: 2200 MHz
+            mem_size: 64 GiB
+      requirements:
+        - host:
+            node: cluster_econome
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # CLUSTER: ecotaxe
+    # 2 nodes — AMD EPYC 7453 (Zen 3) — 256 GiB — 3x Nvidia A100 80GB
+    # Access: exotic job type required
+    # ═══════════════════════════════════════════════════════════════════════
+    cluster_ecotaxe:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: ecotaxe
+        access_condition: exotic
+        oar_queue: default
+        date_of_arrival: "2025-10-15"
+        manufacturing_date: "2023-06-28"
+        total_nodes: 2
+        total_cores: 112   # 2 nodes x 2 CPUs x 28 cores
+      requirements:
+        - nodes:
+            node: site_nantes
+
+    ecotaxe_nodes:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: ecotaxe
+        node_range: "ecotaxe-[1-2]"
+        count: 2
+        hw_model: HPE ProLiant DL385 Gen10 Plus v2
+        manufacturing_date: "2023-06-28"
+        cpu_info:
+          architecture: x86_64
+          model: AMD EPYC 7453
+          microarchitecture: Zen 3
+          num_cpus: 2
+          cores_per_cpu: 28
+          max_frequency_ghz: 2.75   # base; boost to 3.45 GHz
+        ram_gib: 256.0
+        storage:
+          - label: disk0
+            capacity_tb: 1.92
+            type: SSD
+            interface: SAS
+            model: HPE VO001920RZWUV
+            primary: true
+          - label: disk1
+            capacity_tb: 7.68
+            type: SSD
+            interface: SAS
+            model: HPE VO007680RZWUU
+            primary: false
+          - label: disk2
+            capacity_tb: 7.68
+            type: SSD
+            interface: SAS
+            model: HPE VO007680RZWUU
+            primary: false
+        network_interfaces:
+          - name: eth0
+            rate_gbps: 100.0
+            model: Intel Ethernet Controller E810-C for QSFP
+            driver: ice
+            sriov_enabled: true
+            available_for_experiment: true
+          - name: eth1
+            rate_gbps: 100.0
+            model: Intel Ethernet Controller E810-C for QSFP
+            driver: ice
+            sriov_enabled: false
+            available_for_experiment: false
+        gpu:
+          count: 3
+          model: Nvidia A100 80GB PCIe
+          vram_gib: 80.0
+          compute_capability: "8.0"
+          gpu_cores: 6912   # A100 has 6912 CUDA cores
+        supported_image_platforms:
+          - linux/amd64
+      capabilities:
+        host:
+          properties:
+            num_cpus: 56
+            cpu_frequency: 2750 MHz
+            mem_size: 256 GiB
+      requirements:
+        - host:
+            node: cluster_ecotaxe
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # CLUSTER: ecotype
+    # 48 nodes — Intel Xeon E5-2630L v4 (Broadwell) — 128 GiB — SSD 400 GB
+    # Default queue, dual 10 Gbps NICs (SR-IOV)
+    # ═══════════════════════════════════════════════════════════════════════
+    cluster_ecotype:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: ecotype
+        access_condition: default
+        oar_queue: default
+        date_of_arrival: "2017-10-16"
+        manufacturing_date: "2017-07-11"
+        total_nodes: 48
+        total_cores: 960   # 48 nodes x 2 CPUs x 10 cores
+      requirements:
+        - nodes:
+            node: site_nantes
+
+    ecotype_nodes:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: ecotype
+        node_range: "ecotype-[1-48]"
+        count: 48
+        hw_model: Dell PowerEdge R630
+        manufacturing_date: "2017-07-11"
+        cpu_info:
+          architecture: x86_64
+          model: Intel Xeon E5-2630L v4
+          microarchitecture: Broadwell
+          num_cpus: 2
+          cores_per_cpu: 10
+          max_frequency_ghz: 1.80
+        ram_gib: 128.0
+        storage:
+          - label: disk0
+            capacity_tb: 0.4
+            type: SSD
+            interface: SAS
+            model: Toshiba PX04SMB040
+            primary: true
+        network_interfaces:
+          - name: eth0/eno1
+            rate_gbps: 10.0
+            model: Intel 82599ES 10-Gigabit SFI/SFP+ Network Connection
+            driver: ixgbe
+            sriov_enabled: true
+            available_for_experiment: true
+          - name: eth1/eno2
+            rate_gbps: 10.0
+            model: Intel 82599ES 10-Gigabit SFI/SFP+ Network Connection
+            driver: ixgbe
+            sriov_enabled: true
+            available_for_experiment: true
+          - name: eth2/eno3
+            rate_gbps: 1.0
+            model: Intel I350 Gigabit Network Connection
+            driver: igb
+            sriov_enabled: false
+            available_for_experiment: false
+          - name: eth3/eno4
+            rate_gbps: 1.0
+            model: Intel I350 Gigabit Network Connection
+            driver: igb
+            sriov_enabled: false
+            available_for_experiment: false
+        supported_image_platforms:
+          - linux/amd64
+      capabilities:
+        host:
+          properties:
+            num_cpus: 20
+            cpu_frequency: 1800 MHz
+            mem_size: 128 GiB
+      requirements:
+        - host:
+            node: cluster_ecotype
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # GROUPS
+  # ───────────────────────────────────────────────────────────────────────────
+  groups:
+
+    all_econome_nodes:
+      type: tosca.groups.Root
+      description: All econome compute node groups (24 nodes total)
+      members:
+        - econome_group_a
+        - econome_group_b
+        - econome_node_24
+
+    gpu_nodes:
+      type: tosca.groups.Root
+      description: Nodes with GPU accelerators (ecotaxe, exotic access required)
+      members:
+        - ecotaxe_nodes
+
+    default_queue_nodes:
+      type: tosca.groups.Root
+      description: All nodes accessible via default OAR queue
+      members:
+        - econome_group_a
+        - econome_group_b
+        - econome_node_24
+        - ecotype_nodes
+
+    high_memory_nodes:
+      type: tosca.groups.Root
+      description: Nodes with >= 128 GiB RAM
+      members:
+        - ecotaxe_nodes   # 256 GiB
+        - ecotype_nodes   # 128 GiB
+
+    high_bandwidth_nodes:
+      type: tosca.groups.Root
+      description: Nodes with >= 100 Gbps network
+      members:
+        - ecotaxe_nodes   # 100 Gbps
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # OUTPUTS
+  # ───────────────────────────────────────────────────────────────────────────
+  outputs:
+
+    site_summary:
+      description: Grid'5000 Nantes site summary
+      value:
+        site:        { get_property: [site_nantes, site_name] }
+        frontend:    { get_property: [site_nantes, frontend_hostname] }
+        total_nodes: { get_property: [site_nantes, total_nodes] }
+        total_cores: { get_property: [site_nantes, total_cpu_cores] }
+        total_ram_tib: { get_property: [site_nantes, total_ram_tib] }
+        tflops_cpu:  { get_property: [site_nantes, tflops_cpu] }
+
+    cluster_econome_summary:
+      description: econome cluster
+      value:
+        cluster:    econome
+        nodes:      24
+        cores_each: 16         # 2 CPUs x 8 cores
+        ram_gib:    64
+        storage:    "2.0 TB HDD"
+        network:    "10 Gbps SR-IOV"
+        access:     default
+        node_groups:
+          - "econome-[1-10,12-22] (21 nodes, Intel 82599ES NIC)"
+          - "econome-[11,23] (2 nodes, Intel X520 NIC)"
+          - "econome-24 (1 node, Intel X520 NIC, fewer ports)"
+
+    cluster_ecotaxe_summary:
+      description: ecotaxe cluster (exotic access)
+      value:
+        cluster:    ecotaxe
+        nodes:      2
+        cores_each: 56         # 2 CPUs x 28 cores
+        ram_gib:    256
+        storage:    "1.92 TB SSD + 2x 7.68 TB SSD"
+        network:    "100 Gbps SR-IOV"
+        gpu:        "3x Nvidia A100 80GB PCIe (compute capability 8.0)"
+        access:     "exotic (oarsub -t exotic)"
+
+    cluster_ecotype_summary:
+      description: ecotype cluster
+      value:
+        cluster:    ecotype
+        nodes:      48
+        cores_each: 20         # 2 CPUs x 10 cores
+        ram_gib:    128
+        storage:    "400 GB SSD"
+        network:    "2x 10 Gbps SR-IOV"
+        access:     default

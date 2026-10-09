@@ -1,0 +1,957 @@
+tosca_definitions_version: tosca_simple_yaml_1_3
+
+description: >
+  TOSCA topology for the Grid'5000 Nancy site.
+  Source: https://www.grid5000.fr/w/Nancy:Hardware
+  Last API update: 2026-08-31 (commit 6c0c4bae22)
+  Summary: 14 clusters, 264 nodes, 10470 CPU cores, 129 GPUs,
+           782848 GPU cores, 57.28 TiB RAM, 524.6 TB storage,
+           765.0 TFLOPS CPU (excl. GPUs).
+  Two queues: default (2 clusters, 125 nodes) +
+              abaca (12 clusters, 139 nodes, GPU/special hardware).
+  Records in G5K survey:
+    - gros: largest single cluster (123 nodes), default queue
+    - grdix: highest CPU core count (256 cores/node, AMD EPYC 9754 Zen 4c)
+    - grosminet: highest CPU RAM in G5K survey (6.0 TiB, 4-socket)
+    - gres: L40S GPUs (Ada Lovelace, CC 8.9) in abaca
+    - graffiti: consumer GPU (RTX 2080 Ti) in an HPC cluster
+  Naming theme: all clusters start with "gr-" (Lorrain tradition)
+
+metadata:
+  template_name:    Grid5000-Nancy
+  template_version: "1.0.0"
+  template_author:  Generated from Grid5000 Reference API
+  site:             Nancy
+  source_url:       https://www.grid5000.fr/w/Nancy:Hardware
+  created:          "2026-09-15"
+
+data_types:
+
+  g5k.datatypes.CPUInfo:
+    derived_from: tosca.datatypes.Root
+    properties:
+      architecture:      { type: string, required: true }
+      model:             { type: string, required: false }
+      microarchitecture: { type: string, required: false }
+      num_cpus:          { type: integer, required: true }
+      cores_per_cpu:     { type: integer, required: true }
+      max_frequency_ghz: { type: float, required: false }
+
+  g5k.datatypes.StorageDisk:
+    derived_from: tosca.datatypes.Root
+    properties:
+      label:       { type: string, required: true }
+      capacity_tb: { type: float, required: true }
+      type:        { type: string, required: true }
+      interface:   { type: string, required: false }
+      model:       { type: string, required: false }
+      primary:     { type: boolean, default: false }
+      reservable:  { type: boolean, default: false }
+
+  g5k.datatypes.NetworkInterface:
+    derived_from: tosca.datatypes.Root
+    properties:
+      name:                     { type: string, required: true }
+      rate_gbps:                { type: float, required: true }
+      model:                    { type: string, required: false }
+      driver:                   { type: string, required: false }
+      type:                     { type: string, default: Ethernet }
+      sriov_enabled:            { type: boolean, default: false }
+      rdma_capable:             { type: boolean, default: false }
+      available_for_experiment: { type: boolean, default: true }
+
+  g5k.datatypes.GPUInfo:
+    derived_from: tosca.datatypes.Root
+    properties:
+      count:              { type: integer, required: true }
+      model:              { type: string, required: true }
+      vendor:             { type: string, required: false }
+      architecture:       { type: string, required: false }
+      vram_gib:           { type: float, required: true }
+      vram_type:          { type: string, required: false }
+      gpu_cores:          { type: integer, required: false }
+      tensor_cores:       { type: integer, required: false }
+      compute_capability: { type: string, required: false }
+      consumer_grade:     { type: boolean, default: false }
+
+node_types:
+
+  g5k.nodes.Site:
+    derived_from: tosca.nodes.Root
+    properties:
+      site_name:         { type: string, required: true }
+      location:          { type: string, required: false }
+      frontend_hostname: { type: string, required: false }
+      total_nodes:       { type: integer, required: false }
+      total_cpu_cores:   { type: integer, required: false }
+      total_gpu_count:   { type: integer, default: 0 }
+      total_gpu_cores:   { type: integer, default: 0 }
+      total_ram_tib:     { type: float, required: false }
+      total_storage_tb:  { type: float, required: false }
+      tflops_cpu:        { type: float, required: false }
+
+  g5k.nodes.Cluster:
+    derived_from: tosca.nodes.Root
+    properties:
+      cluster_name:       { type: string, required: true }
+      access_condition:   { type: string, default: default }
+      oar_queue:          { type: string, default: default }
+      date_of_arrival:    { type: string, required: false }
+      manufacturing_date: { type: string, required: false }
+      total_nodes:        { type: integer, required: false }
+      total_cores:        { type: integer, required: false }
+      max_walltime_hours: { type: integer, required: false }
+
+  g5k.nodes.ComputeNode:
+    derived_from: tosca.nodes.Compute
+    properties:
+      node_name:          { type: string, required: true }
+      node_range:         { type: string, required: false }
+      count:              { type: integer, required: true }
+      hw_model:           { type: string, required: false }
+      manufacturing_date: { type: string, required: false }
+      cpu_info:           { type: g5k.datatypes.CPUInfo, required: true }
+      ram_gib:            { type: float, required: true }
+      storage:            { type: list, entry_schema: { type: g5k.datatypes.StorageDisk }, required: false }
+      network_interfaces: { type: list, entry_schema: { type: g5k.datatypes.NetworkInterface }, required: false }
+      gpu:                { type: g5k.datatypes.GPUInfo, required: false }
+      supported_image_platforms: { type: list, entry_schema: { type: string }, required: false }
+
+topology_template:
+
+  node_templates:
+
+    site_nancy:
+      type: g5k.nodes.Site
+      properties:
+        site_name:         Nancy
+        location:          Nancy, France
+        frontend_hostname: fnancy
+        total_nodes:       264
+        total_cpu_cores:   10470
+        total_gpu_count:   129
+        total_gpu_cores:   782848
+        total_ram_tib:     57.28
+        total_storage_tb:  524.6
+        tflops_cpu:        765.0
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # DEFAULT QUEUE
+    # ═══════════════════════════════════════════════════════════════════════
+
+    # ── gros: 123 nodes, Cascade Lake single-socket, 25 Gbps SR-IOV ─────
+    # Largest single cluster in the 8-site G5K survey.
+    # Single-socket (1 CPU/node, 18 cores). All-SSD. 3 minor sub-groups
+    # differing only in SSD model — condensed to 2 groups.
+    cluster_gros:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: gros
+        access_condition: default
+        oar_queue: default
+        date_of_arrival: "2019-09-04"
+        manufacturing_date: "2019-07-16"
+        total_nodes: 123
+        total_cores: 2214
+
+    gros_main:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: gros
+        node_range: "gros-[1-26,28-67,69-102,104-124]"
+        count: 121
+        hw_model: Dell PowerEdge R640
+        manufacturing_date: "2019-07-16"
+        cpu_info:
+          architecture: x86_64
+          model: Intel Xeon Gold 5220
+          microarchitecture: Cascade Lake-SP
+          num_cpus: 1
+          cores_per_cpu: 18
+          max_frequency_ghz: 2.20
+        ram_gib: 96.0
+        storage:
+          - { label: disk0, capacity_tb: 0.48, type: SSD, interface: SATA, model: "Micron MTFDDAK480TDN", primary: true }
+          - { label: disk1, capacity_tb: 0.96, type: SSD, interface: SATA, model: "Micron MTFDDAK960TDN", reservable: true }
+        network_interfaces:
+          - { name: eth0/eno1, rate_gbps: 25.0, model: "Mellanox ConnectX-4 Lx", driver: mlx5_core, sriov_enabled: true, available_for_experiment: true }
+          - { name: eth1/eno2, rate_gbps: 25.0, model: "Mellanox ConnectX-4 Lx", driver: mlx5_core, sriov_enabled: true, available_for_experiment: true }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_gros }
+
+    # gros-27 (Samsung SSD) and gros-68 (Intel secondary SSD) are
+    # functionally identical — merged for conciseness
+    gros_minor:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: gros
+        node_range: "gros-[27,68,103]"
+        count: 2
+        hw_model: Dell PowerEdge R640
+        manufacturing_date: "2019-07-16"
+        cpu_info:
+          architecture: x86_64
+          model: Intel Xeon Gold 5220
+          microarchitecture: Cascade Lake-SP
+          num_cpus: 1
+          cores_per_cpu: 18
+          max_frequency_ghz: 2.20
+        ram_gib: 96.0
+        storage:
+          - { label: disk0, capacity_tb: 0.48, type: SSD, interface: SATA, model: "Samsung/Micron (varies)", primary: true }
+          - { label: disk1, capacity_tb: 0.96, type: SSD, interface: SATA, model: "Micron/Intel (varies)", reservable: true }
+        network_interfaces:
+          - { name: eth0/eno1, rate_gbps: 25.0, model: "Mellanox ConnectX-4 Lx", driver: mlx5_core, sriov_enabled: true, available_for_experiment: true }
+          - { name: eth1/eno2, rate_gbps: 25.0, model: "Mellanox ConnectX-4 Lx", driver: mlx5_core, sriov_enabled: true, available_for_experiment: true }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_gros }
+
+    # ── grouille: 2 nodes, AMD EPYC 7452 + 2x A100-PCIE, exotic ────────
+    cluster_grouille:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: grouille
+        access_condition: exotic
+        oar_queue: default
+        date_of_arrival: "2021-01-13"
+        manufacturing_date: "2020-12-07"
+        total_nodes: 2
+        total_cores: 128
+
+    grouille_nodes:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: grouille
+        node_range: "grouille-[1-2]"
+        count: 2
+        hw_model: Dell PowerEdge R7525
+        manufacturing_date: "2020-12-07"
+        cpu_info:
+          architecture: x86_64
+          model: AMD EPYC 7452
+          microarchitecture: Zen 2
+          num_cpus: 2
+          cores_per_cpu: 32
+          max_frequency_ghz: 2.35
+        ram_gib: 128.0
+        storage:
+          - { label: disk0, capacity_tb: 1.92, type: SSD, interface: SAS,  model: "Toshiba KRM5XVUG1T92", primary: true }
+          - { label: disk1, capacity_tb: 0.96, type: SSD, interface: SATA, model: "Micron MTFDDAK960TDT", reservable: true }
+        network_interfaces:
+          - { name: eth2/eno33, rate_gbps: 25.0, model: "Mellanox ConnectX-5", driver: mlx5_core, available_for_experiment: true }
+        gpu:
+          count: 2
+          model: Nvidia A100-PCIE-40GB
+          vendor: Nvidia
+          architecture: Ampere
+          vram_gib: 40.0
+          vram_type: HBM2e
+          gpu_cores: 6912
+          tensor_cores: 432
+          compute_capability: "8.0"
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_grouille }
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # ABACA QUEUE
+    # ═══════════════════════════════════════════════════════════════════════
+
+    # ── graffiti: 12 nodes, Skylake-SP + consumer RTX GPUs, abaca ───────
+    # Consumer-grade GPU (GeForce RTX 2080 Ti) in HPC context -- unusual.
+    # graffiti-[1-11]: 4x RTX 2080 Ti; graffiti-13: 4x Quadro RTX 6000
+    cluster_graffiti:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: graffiti
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2019-06-07"
+        manufacturing_date: "2019-05-27"
+        total_nodes: 12
+        total_cores: 192
+        max_walltime_hours: 168
+
+    graffiti_rtx2080ti:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: graffiti
+        node_range: "graffiti-[1-11]"
+        count: 11
+        hw_model: Dell PowerEdge T640
+        manufacturing_date: "2019-05-27"
+        cpu_info:
+          architecture: x86_64
+          model: Intel Xeon Silver 4110
+          microarchitecture: Skylake-SP
+          num_cpus: 2
+          cores_per_cpu: 8
+          max_frequency_ghz: 2.10
+        ram_gib: 128.0
+        storage:
+          - { label: disk0, capacity_tb: 0.479, type: HDD, interface: SATA, model: "Dell PERC H330 Adp", primary: true }
+        network_interfaces:
+          - { name: eth2/ens4f0, rate_gbps: 10.0, model: "Intel X710", driver: i40e, available_for_experiment: true }
+        gpu:
+          count: 4
+          model: Nvidia GeForce RTX 2080 Ti
+          vendor: Nvidia
+          architecture: Turing
+          vram_gib: 11.0
+          vram_type: GDDR6
+          gpu_cores: 4352
+          tensor_cores: 544
+          compute_capability: "7.5"
+          consumer_grade: true
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_graffiti }
+
+    graffiti_qrtx6000:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: graffiti-13
+        node_range: "graffiti-13"
+        count: 1
+        hw_model: Dell PowerEdge T640
+        manufacturing_date: "2019-05-27"
+        cpu_info:
+          architecture: x86_64
+          model: Intel Xeon Silver 4110
+          microarchitecture: Skylake-SP
+          num_cpus: 2
+          cores_per_cpu: 8
+          max_frequency_ghz: 2.10
+        ram_gib: 128.0
+        storage:
+          - { label: disk0, capacity_tb: 0.479, type: HDD, interface: SATA, model: "Dell PERC H330 Adp", primary: true }
+        network_interfaces:
+          - { name: eth2/ens4f0, rate_gbps: 10.0, model: "Intel X710", driver: i40e, available_for_experiment: true }
+        gpu:
+          count: 4
+          model: Nvidia Quadro RTX 6000
+          vendor: Nvidia
+          architecture: Turing
+          vram_gib: 23.0
+          vram_type: GDDR6
+          gpu_cores: 4608
+          compute_capability: "7.5"
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_graffiti }
+
+    # ── grappe: 16 nodes, Cascade Lake + 8 TB HDD, abaca ────────────────
+    cluster_grappe:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: grappe
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2020-08-20"
+        manufacturing_date: "2020-07-09"
+        total_nodes: 16
+        total_cores: 640
+        max_walltime_hours: 168
+
+    grappe_nodes:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: grappe
+        node_range: "grappe-[1-16]"
+        count: 16
+        hw_model: Dell PowerEdge R640
+        manufacturing_date: "2020-07-09"
+        cpu_info:
+          architecture: x86_64
+          model: Intel Xeon Gold 5218R
+          microarchitecture: Cascade Lake-SP
+          num_cpus: 2
+          cores_per_cpu: 20
+          max_frequency_ghz: 2.10
+        ram_gib: 96.0
+        storage:
+          - { label: disk0, capacity_tb: 0.48, type: SSD, interface: SATA, model: "Intel SSDSC2KG480G8R", primary: true }
+          - { label: disk1, capacity_tb: 8.0,  type: HDD, interface: SAS,  model: "Seagate ST8000NM0185" }
+        network_interfaces:
+          - { name: eth0/ens1f0, rate_gbps: 25.0, model: "Intel XXV710 25GbE SFP28", driver: i40e, available_for_experiment: true }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_grappe }
+
+    # ── grat: 1 node, AMD EPYC 7513 + 8x A100-SXM4 + 30 TB SSD, abaca ─
+    cluster_grat:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: grat
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2022-09-07"
+        manufacturing_date: "2022-06-22"
+        total_nodes: 1
+        total_cores: 64
+        max_walltime_hours: 168
+
+    grat_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: grat-1
+        node_range: "grat-1"
+        count: 1
+        hw_model: HPE Apollo 6500
+        manufacturing_date: "2022-06-22"
+        cpu_info:
+          architecture: x86_64
+          model: AMD EPYC 7513
+          microarchitecture: Zen 3
+          num_cpus: 2
+          cores_per_cpu: 32
+          max_frequency_ghz: 2.60
+        ram_gib: 512.0
+        storage:
+          - { label: disk0, capacity_tb: 3.84, type: SSD, interface: SAS, model: "HP VO003840RZWVA", primary: true }
+          - { label: disk1, capacity_tb: 3.84, type: SSD, interface: SAS, model: "HP VO003840RZWVA" }
+          - { label: disk2, capacity_tb: 3.84, type: SSD, interface: SAS, model: "HP VO003840RZWVA" }
+          - { label: disk3, capacity_tb: 3.84, type: SSD, interface: SAS, model: "HP VO003840RZWVA" }
+          - { label: disk4, capacity_tb: 3.84, type: SSD, interface: SAS, model: "HP VO003840RZWVA" }
+          - { label: disk5, capacity_tb: 3.84, type: SSD, interface: SAS, model: "HP VO003840RZWVA" }
+          - { label: disk6, capacity_tb: 3.84, type: SSD, interface: SAS, model: "HP VO003840RZWVA" }
+          - { label: disk7, capacity_tb: 3.84, type: SSD, interface: SAS, model: "HP VO003840RZWVA" }
+          # Total: 8 x 3.84 TB = 30.72 TB SSD
+        network_interfaces:
+          - { name: eth0/ens21f0np0, rate_gbps: 25.0, model: "Mellanox ConnectX-5", driver: mlx5_core, sriov_enabled: true, available_for_experiment: true }
+        gpu:
+          count: 8
+          model: Nvidia A100-SXM4-40GB
+          vendor: Nvidia
+          architecture: Ampere
+          vram_gib: 40.0
+          vram_type: HBM2e
+          gpu_cores: 6912
+          tensor_cores: 432
+          compute_capability: "8.0"
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_grat }
+
+    # ── gratouille: 1 node, Broadwell + 1x V100-PCIE-16GB, abaca ────────
+    cluster_gratouille:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: gratouille
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2017-06-26"
+        manufacturing_date: "2017-06-07"
+        total_nodes: 1
+        total_cores: 24
+        max_walltime_hours: 168
+
+    gratouille_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: gratouille-1
+        node_range: "gratouille-1"
+        count: 1
+        hw_model: Dell PowerEdge R730
+        manufacturing_date: "2017-06-07"
+        cpu_info:
+          architecture: x86_64
+          model: Intel Xeon E5-2650 v4
+          microarchitecture: Broadwell
+          num_cpus: 2
+          cores_per_cpu: 12
+          max_frequency_ghz: 2.20
+        ram_gib: 128.0
+        storage:
+          - { label: disk0, capacity_tb: 0.299, type: HDD, interface: SAS, model: "Dell PERC H730 Mini", primary: true }
+          - { label: disk1, capacity_tb: 0.299, type: HDD, interface: SAS, model: "Dell PERC H730 Mini" }
+        network_interfaces:
+          - { name: eth0/eno1, rate_gbps: 10.0, model: "Intel 82599ES", driver: ixgbe, sriov_enabled: true, available_for_experiment: true }
+        gpu:
+          count: 1
+          model: Nvidia Tesla V100-PCIE-16GB
+          vendor: Nvidia
+          architecture: Volta
+          vram_gib: 16.0
+          vram_type: HBM2
+          gpu_cores: 5120
+          tensor_cores: 640
+          compute_capability: "7.0"
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_gratouille }
+
+    # ── grdix: 16 nodes, AMD EPYC 9754 Zen 4c + 200 Gbps IB, abaca ─────
+    # 128 cores/socket = 256 cores/node — highest core count in G5K survey.
+    # 1.0 TiB RAM + 200 Gbps InfiniBand (HDR).
+    cluster_grdix:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: grdix
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2024-09-27"
+        manufacturing_date: "2024-09-02"
+        total_nodes: 16
+        total_cores: 4096
+        max_walltime_hours: 168
+
+    grdix_nodes:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: grdix
+        node_range: "grdix-[1-16]"
+        count: 16
+        hw_model: HPE ProLiant DL365 Gen11
+        manufacturing_date: "2024-09-02"
+        cpu_info:
+          architecture: x86_64
+          model: AMD EPYC 9754
+          microarchitecture: Zen 4c
+          num_cpus: 2
+          cores_per_cpu: 128
+          max_frequency_ghz: 2.25
+          # Zen 4c = compact cores variant (Genoa-X/Bergamo)
+          # 128 cores/socket = 256 cores/node: G5K record
+        ram_gib: 1024.0
+        storage:
+          - { label: disk0, capacity_tb: 1.6, type: SSD, interface: NVMe, model: "Samsung MO001600KYDMU", primary: true }
+        network_interfaces:
+          - name: eth0/enp1s0f0np0
+            rate_gbps: 25.0
+            model: Mellanox ConnectX-6 Lx
+            driver: mlx5_core
+            sriov_enabled: true
+            available_for_experiment: true
+          - name: ibs1
+            rate_gbps: 200.0
+            type: InfiniBand
+            model: Mellanox ConnectX-6 (HDR200)
+            driver: mlx5_core
+            available_for_experiment: true
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_grdix }
+
+    # ── grele: 13 nodes, Broadwell + 2x GTX 1080 Ti, abaca ─────────────
+    cluster_grele:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: grele
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2017-06-26"
+        manufacturing_date: "2017-06-07"
+        total_nodes: 13
+        total_cores: 312
+        max_walltime_hours: 168
+
+    grele_nodes:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: grele
+        node_range: "grele-[1-13]"
+        count: 13
+        hw_model: Dell PowerEdge R730
+        manufacturing_date: "2017-06-07"
+        cpu_info:
+          architecture: x86_64
+          model: Intel Xeon E5-2650 v4
+          microarchitecture: Broadwell
+          num_cpus: 2
+          cores_per_cpu: 12
+          max_frequency_ghz: 2.20
+        ram_gib: 128.0
+        storage:
+          - { label: disk0, capacity_tb: 0.299, type: HDD, interface: SAS, model: "Dell PERC H730 Mini", primary: true }
+          - { label: disk1, capacity_tb: 0.299, type: HDD, interface: SAS, model: "Dell PERC H730 Mini" }
+        network_interfaces:
+          - { name: eth0/eno1, rate_gbps: 10.0, model: "Intel 82599ES", driver: ixgbe, sriov_enabled: true, available_for_experiment: true }
+        gpu:
+          count: 2
+          model: Nvidia GeForce GTX 1080 Ti
+          vendor: Nvidia
+          architecture: Pascal
+          vram_gib: 11.0
+          vram_type: GDDR5X
+          gpu_cores: 3584
+          compute_capability: "6.1"
+          consumer_grade: true
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_grele }
+
+    # ── gres: 7 nodes, AMD EPYC 9254 Zen 4 + 2x L40S + 6.4 TB NVMe ────
+    cluster_gres:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: gres
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2024-08-23"
+        manufacturing_date: "2024-08-07"
+        total_nodes: 7
+        total_cores: 336
+        max_walltime_hours: 168
+
+    gres_nodes:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: gres
+        node_range: "gres-[1-7]"
+        count: 7
+        hw_model: HPE ProLiant DL385 Gen11
+        manufacturing_date: "2024-08-07"
+        cpu_info:
+          architecture: x86_64
+          model: AMD EPYC 9254
+          microarchitecture: Zen 4
+          num_cpus: 2
+          cores_per_cpu: 24
+          max_frequency_ghz: 2.90
+        ram_gib: 512.0
+        storage:
+          - { label: disk0, capacity_tb: 6.4, type: SSD, interface: NVMe, model: "Samsung MO006400KYDND", primary: true }
+        network_interfaces:
+          - name: eth0/ens22f0np0
+            rate_gbps: 25.0
+            model: Broadcom BCM57414 NetXtreme-E RDMA
+            driver: bnxt_en
+            rdma_capable: true
+            available_for_experiment: true
+        gpu:
+          count: 2
+          model: Nvidia L40S
+          vendor: Nvidia
+          architecture: Ada Lovelace
+          vram_gib: 45.0
+          vram_type: GDDR6
+          gpu_cores: 18176
+          compute_capability: "8.9"
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_gres }
+
+    # ── grosminet: 1 node, 4-socket, 6.0 TiB RAM — G5K RAM record ───────
+    # Cascade Lake-SP 4-socket = 72 cores. 6.0 TiB RAM: largest in survey.
+    # "Grosminet" = Sylvester the Cat in French, apt for a fat memory node!
+    cluster_grosminet:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: grosminet
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2023-12-05"
+        manufacturing_date: "2023-11-30"
+        total_nodes: 1
+        total_cores: 72
+        max_walltime_hours: 24
+
+    grosminet_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: grosminet-1
+        node_range: "grosminet-1"
+        count: 1
+        hw_model: HPE ProLiant DL560 Gen10
+        manufacturing_date: "2023-11-30"
+        cpu_info:
+          architecture: x86_64
+          model: Intel Xeon Gold 6240L
+          microarchitecture: Cascade Lake-SP
+          num_cpus: 4
+          cores_per_cpu: 18
+          max_frequency_ghz: 2.60
+        ram_gib: 6144.0
+        # 6.0 TiB RAM: absolute record across all G5K sites in this survey.
+        # For comparison: vianden (Luxembourg) has 2.0 TiB CPU + 1.5 TiB GPU.
+        storage:
+          - { label: disk0, capacity_tb: 1.6, type: SSD, interface: SAS, model: "HPE VO001600JWZJQ", primary: true }
+          - { label: disk1, capacity_tb: 1.6, type: SSD, interface: SAS, model: "HPE VO001600JWZJQ" }
+          - { label: disk2, capacity_tb: 1.6, type: SSD, interface: SAS, model: "HPE VO001600JWZJQ" }
+          - { label: disk3, capacity_tb: 1.6, type: SSD, interface: SAS, model: "HPE VO001600JWZJQ" }
+          - { label: disk4, capacity_tb: 1.6, type: SSD, interface: SAS, model: "HPE VO001600JWZJQ" }
+          - { label: disk5, capacity_tb: 1.6, type: SSD, interface: SAS, model: "HPE VO001600JWZJQ" }
+          - { label: disk6, capacity_tb: 1.6, type: SSD, interface: SAS, model: "HPE VO001600JWZJQ" }
+          - { label: disk7, capacity_tb: 1.6, type: SSD, interface: SAS, model: "HPE VO001600JWZJQ" }
+        network_interfaces:
+          - { name: eth0/ens1f0, rate_gbps: 25.0, model: "Intel E810-XXV", driver: ice, sriov_enabled: true, available_for_experiment: true }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_grosminet }
+
+    # ── grostiti: 1 node, 4-socket Haswell, 1.5 TiB RAM, 2015 hardware ─
+    # Manufactured 2015, arrived 2024 — 8-year gap (refurbished/relocated).
+    cluster_grostiti:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: grostiti
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2024-01-10"
+        manufacturing_date: "2015-10-23"
+        total_nodes: 1
+        total_cores: 56
+        max_walltime_hours: 168
+
+    grostiti_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: grostiti-1
+        node_range: "grostiti-1"
+        count: 1
+        hw_model: Dell PowerEdge R930
+        manufacturing_date: "2015-10-23"
+        cpu_info:
+          architecture: x86_64
+          model: Intel Xeon E7-4850 v3
+          microarchitecture: Haswell
+          num_cpus: 4
+          cores_per_cpu: 14
+          max_frequency_ghz: 2.20
+        ram_gib: 1536.0   # 1.5 TiB
+        storage:
+          - { label: disk0, capacity_tb: 1.2,   type: HDD, interface: SAS, model: "Dell PERC H730P Adp", primary: true }
+          - { label: disk1, capacity_tb: 4.0,   type: HDD, interface: SAS, model: "Dell PERC H730P Adp" }
+          - { label: disk2, capacity_tb: 0.599, type: HDD, interface: SAS, model: "Dell PERC H730P Adp" }
+        network_interfaces:
+          - { name: eth0/eno1, rate_gbps: 10.0, model: "Intel 82599ES", driver: ixgbe, sriov_enabled: true, available_for_experiment: true }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_grostiti }
+
+    # ── grue: 5 nodes, AMD EPYC 7351 + 4x Tesla T4, abaca ──────────────
+    # T4: inference-optimized Turing GPU (15 GiB, 320 GB/s, 65W TDP).
+    cluster_grue:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: grue
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2019-11-25"
+        manufacturing_date: "2019-11-15"
+        total_nodes: 5
+        total_cores: 160
+        max_walltime_hours: 168
+
+    grue_nodes:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: grue
+        node_range: "grue-[1-5]"
+        count: 5
+        hw_model: Dell PowerEdge R7425
+        manufacturing_date: "2019-11-15"
+        cpu_info:
+          architecture: x86_64
+          model: AMD EPYC 7351
+          microarchitecture: Zen
+          num_cpus: 2
+          cores_per_cpu: 16
+          max_frequency_ghz: 2.40
+        ram_gib: 128.0
+        storage:
+          - { label: disk0, capacity_tb: 0.479, type: HDD, interface: SAS, model: "Dell PERC H730P Adp", primary: true }
+        network_interfaces:
+          - { name: eth0/eno1, rate_gbps: 10.0, model: "Intel X710", driver: i40e, available_for_experiment: true }
+        gpu:
+          count: 4
+          model: Nvidia Tesla T4
+          vendor: Nvidia
+          architecture: Turing
+          vram_gib: 15.0
+          vram_type: GDDR6
+          gpu_cores: 2560
+          tensor_cores: 320
+          compute_capability: "7.5"
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_grue }
+
+    # ── gruss: 4 nodes, AMD EPYC 7352 + 2x A40, abaca ──────────────────
+    # 2 sub-groups (SSD vendor difference only).
+    cluster_gruss:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: gruss
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2021-08-26"
+        manufacturing_date: "2021-06-24"
+        total_nodes: 4
+        total_cores: 192
+        max_walltime_hours: 168
+
+    gruss_nodes:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: gruss
+        node_range: "gruss-[1-4]"
+        count: 4
+        hw_model: Dell PowerEdge R7525
+        manufacturing_date: "2021-06-24"
+        cpu_info:
+          architecture: x86_64
+          model: AMD EPYC 7352
+          microarchitecture: Zen 2
+          num_cpus: 2
+          cores_per_cpu: 24
+          max_frequency_ghz: 2.30
+        ram_gib: 256.0
+        storage:
+          - { label: disk0, capacity_tb: 1.92, type: SSD, interface: SATA, model: "Samsung/SK Hynix (varies)", primary: true }
+        network_interfaces:
+          - { name: eth2/eno33, rate_gbps: 25.0, model: "Mellanox ConnectX-5", driver: mlx5_core, available_for_experiment: true }
+        gpu:
+          count: 2
+          model: Nvidia A40
+          vendor: Nvidia
+          architecture: Ampere
+          vram_gib: 45.0
+          vram_type: GDDR6
+          gpu_cores: 10752
+          tensor_cores: 336
+          compute_capability: "8.6"
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_gruss }
+
+    # ── grvingt: 62 nodes, Skylake-SP + 100 Gbps Omni-Path, abaca ───────
+    # "grvingt" = "gr-vingt" (twenty). 62 nodes, largest abaca cluster.
+    # Omni-Path 100 Gbps (OPA): Intel's MPI fabric, currently unsupported
+    # on Debian 12 environments.
+    cluster_grvingt:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: grvingt
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2018-04-11"
+        manufacturing_date: "2018-04-01"
+        total_nodes: 62
+        total_cores: 1984
+        max_walltime_hours: 168
+
+    grvingt_nodes:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: grvingt
+        node_range: "grvingt-[1-8,9-16,17-32,34-54,56-64]"
+        count: 62
+        hw_model: Dell PowerEdge C6420
+        manufacturing_date: "2018-04-01"
+        cpu_info:
+          architecture: x86_64
+          model: Intel Xeon Gold 6130
+          microarchitecture: Skylake-SP
+          num_cpus: 2
+          cores_per_cpu: 16
+          max_frequency_ghz: 2.10
+        ram_gib: 192.0
+        storage:
+          - { label: disk0, capacity_tb: 1.0, type: HDD, interface: SATA, model: "Seagate ST1000NX0443", primary: true }
+        network_interfaces:
+          - { name: eth0/enp24s0f0, rate_gbps: 10.0, model: "Intel X710", driver: i40e, available_for_experiment: true }
+          - { name: ib0, rate_gbps: 100.0, type: OmniPath, model: "Intel OPA HFI Silicon 100", driver: hfi1, available_for_experiment: true }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_grvingt }
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # GROUPS
+  # ───────────────────────────────────────────────────────────────────────────
+  groups:
+
+    ultra_high_memory:
+      type: tosca.groups.Root
+      description: >
+        Nodes with extraordinary RAM capacity.
+        grosminet: 6.0 TiB (G5K survey record, 4-socket Cascade Lake).
+        grostiti: 1.5 TiB (4-socket Haswell, 2015 hardware).
+        grdix: 1.0 TiB (Zen 4c, 256 cores per node).
+      members: [grosminet_node, grostiti_node, grdix_nodes]
+
+    highest_core_count:
+      type: tosca.groups.Root
+      description: >
+        AMD EPYC 9754 (Zen 4c) with 128 cores/socket = 256 cores/node.
+        Highest single-node CPU core count in the 8-site G5K survey.
+        Plus 200 Gbps InfiniBand HDR.
+      members: [grdix_nodes]
+
+    a100_nodes:
+      type: tosca.groups.Root
+      description: >
+        Nodes with Nvidia A100 GPUs (Ampere, CC 8.0).
+        grouille: 2x A100-PCIE-40GB (exotic, default queue).
+        grat: 8x A100-SXM4-40GB (abaca queue, 30.72 TB SSD).
+      members: [grouille_nodes, grat_node]
+
+    consumer_gpu_nodes:
+      type: tosca.groups.Root
+      description: >
+        Nodes with consumer/prosumer Nvidia GPUs (unusual in HPC context).
+        graffiti: RTX 2080 Ti (Turing, CC 7.5, GeForce series).
+        grele: GTX 1080 Ti (Pascal, CC 6.1, GeForce series).
+        Supports CUDA but not certified for datacenter workloads.
+      members: [graffiti_rtx2080ti, grele_nodes]
+
+    infiniband_nodes:
+      type: tosca.groups.Root
+      description: InfiniBand HDR200 (200 Gbps) on grdix
+      members: [grdix_nodes]
+
+    omnipath_nodes:
+      type: tosca.groups.Root
+      description: >
+        Omni-Path 100 Gbps fabric (grvingt). Note: OPA currently
+        unsupported on Debian 12 environments.
+      members: [grvingt_nodes]
+
+    large_scale_default:
+      type: tosca.groups.Root
+      description: >
+        Large node pools in the default queue (no exotic flag).
+        gros: 123 nodes, single-socket Cascade Lake, 25 Gbps SR-IOV.
+        Best choice for large-scale distributed experiments.
+      members: [gros_main, gros_minor]
+
+  outputs:
+
+    site_summary:
+      description: Grid'5000 Nancy site summary
+      value:
+        site:            { get_property: [site_nancy, site_name] }
+        frontend:        { get_property: [site_nancy, frontend_hostname] }
+        total_nodes:     { get_property: [site_nancy, total_nodes] }
+        total_cpu_cores: { get_property: [site_nancy, total_cpu_cores] }
+        total_gpu_count: { get_property: [site_nancy, total_gpu_count] }
+        total_gpu_cores: { get_property: [site_nancy, total_gpu_cores] }
+        total_ram_tib:   { get_property: [site_nancy, total_ram_tib] }
+        tflops_cpu:      { get_property: [site_nancy, tflops_cpu] }
+
+    gpu_verification:
+      description: GPU count and core count verification
+      value:
+        grouille:  "4 GPUs x 6912 = 27648 cores"
+        graffiti:  "48 GPUs (44x4352 + 4x4608) = 191488 + 18432 = 209920 cores"
+        grat:      "8 GPUs x 6912 = 55296 cores"
+        gratouille: "1 GPU x 5120 = 5120 cores"
+        gres:      "14 GPUs x 18176 = 254464 cores"
+        grue:      "20 GPUs x 2560 = 51200 cores"
+        gruss:     "8 GPUs x 10752 = 86016 cores"
+        grele:     "26 GPUs x 3584 = 93184 cores"
+        total_gpus: 129
+        total_cores: 782848
+        status: "OK -- matches G5K reference API"
+
+    records:
+      description: Nancy records in the 8-site G5K survey
+      value:
+        largest_cluster:    "gros: 123 nodes (single cluster, default queue)"
+        highest_cpu_cores:  "grdix: 256 cores/node (AMD EPYC 9754, Zen 4c)"
+        highest_cpu_ram:    "grosminet: 6.0 TiB CPU RAM (4-socket Cascade Lake)"
+        highest_tflops_cpu: "765.0 TFLOPS -- highest in 8-site survey"
+        oldest_hardware:    "grostiti: manufactured 2015, arrived 2024 (9-year gap)"

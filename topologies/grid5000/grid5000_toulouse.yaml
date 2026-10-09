@@ -1,0 +1,635 @@
+tosca_definitions_version: tosca_simple_yaml_1_3
+
+description: >
+  TOSCA topology for the Grid'5000 Toulouse site.
+  Source: https://www.grid5000.fr/w/Toulouse:Hardware
+  Last API update: 2026-08-19 (commit 8a13e0bd5e)
+  Summary: 2 clusters, 22 nodes, 416 CPU cores, 12 GPUs,
+           6144 GPU cores, 2.88 TiB RAM, 33.61 TB SSD (no HDD),
+           36.6 TFLOPS CPU (excl. GPUs).
+  Architectural highlight: estats is the ONLY AArch64 cluster across
+  the Nantes/Luxembourg/Louvain/Toulouse quartet — 12 Nvidia Jetson
+  AGX Xavier SoC nodes with unified CPU+GPU memory (Volta, 512 CUDA
+  cores + 64 Tensor Cores per node, compute capability 7.2).
+
+metadata:
+  template_name:    Grid5000-Toulouse
+  template_version: "1.0.0"
+  template_author:  Generated from Grid5000 Reference API
+  site:             Toulouse
+  source_url:       https://www.grid5000.fr/w/Toulouse:Hardware
+  created:          "2026-08-31"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DATA TYPES
+# ─────────────────────────────────────────────────────────────────────────────
+data_types:
+
+  g5k.datatypes.CPUInfo:
+    derived_from: tosca.datatypes.Root
+    properties:
+      architecture:
+        type: string
+        description: "ISA: x86_64, aarch64, armv7, ..."
+        required: true
+      model:
+        type: string
+        required: false
+      microarchitecture:
+        type: string
+        description: "e.g. Carmel, Ice Lake-SP, Broadwell"
+        required: false
+      num_cpus:
+        type: integer
+        description: Number of CPU sockets per node
+        required: true
+      cores_per_cpu:
+        type: integer
+        required: true
+      max_frequency_ghz:
+        type: float
+        required: false
+      oci_coverage:
+        type: string
+        description: >
+          OCI/Docker registry coverage for this ISA platform.
+          Architecturally independent of the ISA tier -- ppc64le is
+          Tier1 but has limited public image availability.
+        default: universal
+        constraints:
+          - valid_values: [universal, broad, limited]
+        # universal : linux/amd64   -- almost all public images
+        # broad     : linux/arm64   -- major images (Graviton, Apple)
+        # limited   : linux/ppc64le, linux/arm/v7 -- IBM + community only
+      soc_integrated:
+        type: boolean
+        description: True if CPU is part of a SoC (unified memory with GPU)
+        default: false
+
+  g5k.datatypes.StorageDisk:
+    derived_from: tosca.datatypes.Root
+    properties:
+      label:
+        type: string
+        required: true
+      capacity_tb:
+        type: float
+        required: true
+      type:
+        type: string
+        description: "SSD, HDD, NVMe"
+        required: true
+      interface:
+        type: string
+        description: "SATA, SAS, NVMe"
+        required: false
+      model:
+        type: string
+        required: false
+      primary:
+        type: boolean
+        default: false
+
+  g5k.datatypes.NetworkInterface:
+    derived_from: tosca.datatypes.Root
+    properties:
+      name:
+        type: string
+        required: true
+      rate_gbps:
+        type: float
+        required: true
+      model:
+        type: string
+        required: false
+      driver:
+        type: string
+        required: false
+      rdma_capable:
+        type: boolean
+        default: false
+      sriov_enabled:
+        type: boolean
+        default: false
+      available_for_experiment:
+        type: boolean
+        default: true
+
+  g5k.datatypes.GPUInfo:
+    derived_from: tosca.datatypes.Root
+    properties:
+      count:
+        type: integer
+        required: true
+      model:
+        type: string
+        required: true
+      vendor:
+        type: string
+        required: false
+      architecture:
+        type: string
+        description: "GPU microarchitecture: Volta, Ampere, CDNA2, ..."
+        required: false
+      vram_gib:
+        type: float
+        required: true
+      vram_type:
+        type: string
+        required: false
+      gpu_cores:
+        type: integer
+        description: CUDA / shader processors per GPU
+        required: false
+      tensor_cores:
+        type: integer
+        description: Tensor cores per GPU (for AI workloads)
+        required: false
+      compute_capability:
+        type: string
+        description: "CUDA compute capability version"
+        required: false
+      unified_memory:
+        type: boolean
+        description: >
+          True if GPU shares physical memory pool with CPU (SoC design).
+          The vram_gib value reflects the GPU-allocatable portion
+          of the shared memory, not a separate VRAM chip.
+        default: false
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NODE TYPES
+# ─────────────────────────────────────────────────────────────────────────────
+node_types:
+
+  g5k.nodes.Site:
+    derived_from: tosca.nodes.Root
+    properties:
+      site_name:
+        type: string
+        required: true
+      location:
+        type: string
+        required: false
+      frontend_hostname:
+        type: string
+        required: false
+      total_nodes:
+        type: integer
+        required: false
+      total_cpu_cores:
+        type: integer
+        required: false
+      total_gpu_count:
+        type: integer
+        default: 0
+      total_gpu_cores:
+        type: integer
+        default: 0
+      total_ram_tib:
+        type: float
+        required: false
+      total_storage_tb:
+        type: float
+        required: false
+      hdd_nodes:
+        type: integer
+        default: 0
+      tflops_cpu:
+        type: float
+        required: false
+      isa_diversity:
+        type: list
+        description: ISA tiers present at this site
+        entry_schema:
+          type: string
+        required: false
+    requirements:
+      - clusters:
+          capability: tosca.capabilities.Node
+          relationship: tosca.relationships.HostedOn
+          occurrences: [1, UNBOUNDED]
+
+  g5k.nodes.Cluster:
+    derived_from: tosca.nodes.Root
+    properties:
+      cluster_name:
+        type: string
+        required: true
+      access_condition:
+        type: string
+        default: default
+      oar_queue:
+        type: string
+        default: default
+      date_of_arrival:
+        type: string
+        required: false
+      manufacturing_date:
+        type: string
+        required: false
+      total_nodes:
+        type: integer
+        required: false
+      total_cores:
+        type: integer
+        required: false
+      isa_tier:
+        type: string
+        description: "ISA tier: 'Tier1-x86_64', 'Tier1-aarch64', 'Tier2-armv7', ..."
+        required: false
+    requirements:
+      - nodes:
+          capability: tosca.capabilities.Compute
+          relationship: tosca.relationships.HostedOn
+          occurrences: [1, UNBOUNDED]
+
+  g5k.nodes.ComputeNode:
+    derived_from: tosca.nodes.Compute
+    properties:
+      node_name:
+        type: string
+        required: true
+      node_range:
+        type: string
+        required: false
+      count:
+        type: integer
+        required: true
+      hw_model:
+        type: string
+        required: false
+      form_factor:
+        type: string
+        description: "server, embedded-soc, workstation, ..."
+        default: server
+      manufacturing_date:
+        type: string
+        required: false
+      cpu_info:
+        type: g5k.datatypes.CPUInfo
+        required: true
+      ram_gib:
+        type: float
+        required: true
+      storage:
+        type: list
+        entry_schema:
+          type: g5k.datatypes.StorageDisk
+        required: false
+      network_interfaces:
+        type: list
+        entry_schema:
+          type: g5k.datatypes.NetworkInterface
+        required: false
+      gpu:
+        type: g5k.datatypes.GPUInfo
+        required: false
+      supported_image_platforms:
+        type: list
+        entry_schema:
+          type: string
+        required: false
+    capabilities:
+      host:
+        type: tosca.capabilities.Compute
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TOPOLOGY TEMPLATE
+# ─────────────────────────────────────────────────────────────────────────────
+topology_template:
+
+  description: >
+    Grid'5000 Toulouse site: two architecturally distinct clusters.
+    montcalm: 10 standard x86_64 server nodes (Ice Lake-SP, 10 Gbps RDMA).
+    estats: 12 Nvidia Jetson AGX Xavier embedded SoC nodes (AArch64 + Volta
+    GPU, unified memory, exotic access) — the only AArch64 cluster in the
+    Nantes/Luxembourg/Louvain/Toulouse four-site survey.
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # INPUTS
+  # ───────────────────────────────────────────────────────────────────────────
+  inputs:
+    oar_queue:
+      type: string
+      default: default
+      description: OAR scheduler queue for job submission
+      constraints:
+        - valid_values: [default, production, besteffort]
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # NODE TEMPLATES
+  # ───────────────────────────────────────────────────────────────────────────
+  node_templates:
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # SITE: Toulouse
+    # ═══════════════════════════════════════════════════════════════════════
+    site_toulouse:
+      type: g5k.nodes.Site
+      properties:
+        site_name: Toulouse
+        location: Toulouse, France
+        frontend_hostname: ftoulouse
+        total_nodes: 22
+        total_cpu_cores: 416
+        total_gpu_count: 12
+        total_gpu_cores: 6144       # 12 nodes x 512 Volta CUDA cores
+        total_ram_tib: 2.88
+        total_storage_tb: 33.61
+        hdd_nodes: 0                # 100% SSD
+        tflops_cpu: 36.6
+        isa_diversity:
+          - Tier1-x86_64            # montcalm
+          - Tier1-aarch64           # estats (Nvidia Carmel SoC)
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # CLUSTER: estats
+    # 12 nodes — Nvidia Jetson AGX Xavier SoC — AArch64 + Volta GPU
+    # Unified 32 GiB LPDDR4x (CPU + GPU share the same physical pool)
+    # GPU: 512 CUDA cores + 64 Tensor Cores, compute capability 7.2
+    # Access: exotic job type required
+    # Network: 1 Gbps only — characteristic of embedded/edge SoC boards
+    # ═══════════════════════════════════════════════════════════════════════
+    cluster_estats:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: estats
+        access_condition: exotic
+        oar_queue: default
+        date_of_arrival: "2023-06-13"
+        manufacturing_date: "2022-12-01"
+        total_nodes: 12
+        total_cores: 96             # 12 nodes x 1 CPU x 8 cores
+        isa_tier: Tier1-aarch64
+      requirements:
+        - nodes:
+            node: site_toulouse
+
+    estats_nodes:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: estats
+        node_range: "estats-[1-12]"
+        count: 12
+        hw_model: Connecttech/Nvidia Jetson AGX Xavier
+        form_factor: embedded-soc
+        manufacturing_date: "2022-12-01"
+        cpu_info:
+          architecture: aarch64
+          oci_coverage: broad
+          model: Nvidia Carmel
+          microarchitecture: Carmel
+          num_cpus: 1
+          cores_per_cpu: 8
+          max_frequency_ghz: 2.265  # max boost frequency
+          soc_integrated: true      # CPU + GPU share memory on same die
+        ram_gib: 32.0               # unified LPDDR4x shared by CPU and GPU
+        storage:
+          - label: disk0
+            capacity_tb: 2.0
+            type: SSD
+            interface: NVMe
+            model: Samsung SSD 970 EVO Plus 2TB
+            primary: true
+        network_interfaces:
+          - name: eth0
+            rate_gbps: 1.0
+            model: N/A (embedded Ethernet)
+            driver: nvethernet
+            sriov_enabled: false
+            available_for_experiment: true
+        gpu:
+          count: 1
+          model: Nvidia AGX Xavier (Volta)
+          vendor: Nvidia
+          architecture: Volta
+          vram_gib: 30.0
+          # Note: this is not discrete VRAM — it is the GPU-allocatable share
+          # of the 32 GiB unified LPDDR4x pool. CPU and GPU compete for the
+          # same physical memory. No PCIe transfers needed between CPU and GPU.
+          vram_type: LPDDR4x-unified
+          gpu_cores: 512            # 512 CUDA cores (Volta SM)
+          tensor_cores: 64          # 64 Tensor Cores (1st gen, FP16)
+          compute_capability: "7.2"
+          unified_memory: true
+        supported_image_platforms:
+          - linux/arm64             # AArch64 — full 64-bit container support
+      capabilities:
+        host:
+          properties:
+            num_cpus: 8
+            cpu_frequency: 2265 MHz
+            mem_size: 32 GiB
+      requirements:
+        - host:
+            node: cluster_estats
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # CLUSTER: montcalm
+    # 10 nodes — Intel Xeon Silver 4314 (Ice Lake-SP) — 256 GiB
+    # 960 GB SSD SATA — 10 Gbps RDMA (Broadcom BCM57414)
+    # Default queue, no GPU
+    # ═══════════════════════════════════════════════════════════════════════
+    cluster_montcalm:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: montcalm
+        access_condition: default
+        oar_queue: default
+        date_of_arrival: "2022-12-01"
+        manufacturing_date: "2022-11-06"
+        total_nodes: 10
+        total_cores: 320            # 10 nodes x 2 CPUs x 16 cores
+        isa_tier: Tier1-x86_64
+      requirements:
+        - nodes:
+            node: site_toulouse
+
+    montcalm_nodes:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: montcalm
+        node_range: "montcalm-[1-10]"
+        count: 10
+        hw_model: HPE ProLiant DL360 Gen10+
+        form_factor: server
+        manufacturing_date: "2022-11-06"
+        cpu_info:
+          architecture: x86_64
+          model: Intel Xeon Silver 4314
+          microarchitecture: Ice Lake-SP
+          num_cpus: 2
+          cores_per_cpu: 16
+          max_frequency_ghz: 2.40  # base; boost to 3.40 GHz
+          soc_integrated: false
+        ram_gib: 256.0
+        storage:
+          - label: disk0
+            capacity_tb: 0.96
+            type: SSD
+            interface: SATA
+            model: HP VK000960GXAWL
+            primary: true
+        network_interfaces:
+          - name: eth0/ens10f0np0
+            rate_gbps: 10.0
+            model: Broadcom BCM57414 NetXtreme-E 10Gb/25Gb
+            driver: bnxt_en
+            rdma_capable: true      # RDMA-capable NIC
+            sriov_enabled: false
+            available_for_experiment: true
+          - name: eth1/ens10f1np1
+            rate_gbps: 10.0
+            model: Broadcom BCM57414 NetXtreme-E 10Gb/25Gb
+            driver: bnxt_en
+            rdma_capable: true
+            sriov_enabled: false
+            available_for_experiment: false
+        supported_image_platforms:
+          - linux/amd64
+      capabilities:
+        host:
+          properties:
+            num_cpus: 32
+            cpu_frequency: 2400 MHz
+            mem_size: 256 GiB
+      requirements:
+        - host:
+            node: cluster_montcalm
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # GROUPS
+  # ───────────────────────────────────────────────────────────────────────────
+  groups:
+
+    aarch64_nodes:
+      type: tosca.groups.Root
+      description: >
+        AArch64 (Tier 1, 64-bit ARM) nodes — the only non-x86_64 nodes
+        in the Nantes/Luxembourg/Louvain/Toulouse four-site survey.
+        Supports linux/arm64 container images natively.
+        Requires exotic OAR job type.
+      members:
+        - estats_nodes
+
+    soc_nodes:
+      type: tosca.groups.Root
+      description: >
+        Embedded SoC nodes with unified CPU+GPU memory (no PCIe GPU bus).
+        Workloads benefit from zero-copy between CPU and GPU address spaces.
+        Analogous in form factor to NXP i.MX8M Plus or Kria KV260 nodes.
+      members:
+        - estats_nodes
+
+    gpu_nodes:
+      type: tosca.groups.Root
+      description: >
+        Nodes with Nvidia GPU accelerators (Volta, CUDA 7.2).
+        Supports CUDA, TensorRT, Jetson inference stack.
+        Requires exotic OAR job type.
+      members:
+        - estats_nodes
+
+    volta_tensor_core_nodes:
+      type: tosca.groups.Root
+      description: >
+        Nodes with Volta Tensor Cores (1st generation, FP16 matrix multiply).
+        Suitable for transformer inference at the edge without FP32 fallback.
+      members:
+        - estats_nodes
+
+    rdma_nodes:
+      type: tosca.groups.Root
+      description: >
+        Nodes with RDMA-capable NICs (Broadcom BCM57414 NetXtreme-E).
+        Suitable for MPI with RDMA transport, distributed storage experiments.
+      members:
+        - montcalm_nodes
+
+    default_queue_nodes:
+      type: tosca.groups.Root
+      description: Nodes accessible via standard OAR default queue (no exotic)
+      members:
+        - montcalm_nodes
+
+    nvme_nodes:
+      type: tosca.groups.Root
+      description: Nodes with NVMe SSD primary storage (lowest latency I/O)
+      members:
+        - estats_nodes              # Samsung 970 EVO Plus 2TB NVMe
+
+    heterogeneous_isa_pool:
+      type: tosca.groups.Root
+      description: >
+        All nodes of the site — spanning two ISA tiers (x86_64 + AArch64).
+        Toulouse is the only site in this survey with true ISA heterogeneity,
+        making it directly relevant for multi-arch container scheduling research.
+      members:
+        - estats_nodes
+        - montcalm_nodes
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # OUTPUTS
+  # ───────────────────────────────────────────────────────────────────────────
+  outputs:
+
+    site_summary:
+      description: Grid'5000 Toulouse site summary
+      value:
+        site:             { get_property: [site_toulouse, site_name] }
+        frontend:         { get_property: [site_toulouse, frontend_hostname] }
+        total_nodes:      { get_property: [site_toulouse, total_nodes] }
+        total_cpu_cores:  { get_property: [site_toulouse, total_cpu_cores] }
+        total_gpu_count:  { get_property: [site_toulouse, total_gpu_count] }
+        total_gpu_cores:  { get_property: [site_toulouse, total_gpu_cores] }
+        total_ram_tib:    { get_property: [site_toulouse, total_ram_tib] }
+        storage_all_ssd:  true
+        tflops_cpu:       { get_property: [site_toulouse, tflops_cpu] }
+        isa_diversity:    { get_property: [site_toulouse, isa_diversity] }
+
+    cluster_estats_summary:
+      description: estats cluster (exotic, AArch64 SoC)
+      value:
+        cluster:             estats
+        nodes:               12
+        cores_per_node:      8       # 1x Nvidia Carmel (8-core AArch64)
+        ram_gib:             32      # unified CPU+GPU LPDDR4x
+        storage:             "2.0 TB NVMe SSD"
+        network:             "1 Gbps (embedded, nvethernet)"
+        gpu:                 "1x Nvidia AGX Xavier (Volta, 512 CUDA + 64 TC)"
+        gpu_vram_gib:        30      # GPU-allocatable share of unified memory
+        compute_capability:  "7.2"
+        unified_memory:      true
+        access:              "exotic (oarsub -t exotic)"
+        image_platforms:     [linux/arm64]
+        unique_in_survey:    "Only AArch64 cluster across Nantes/Luxembourg/Louvain/Toulouse"
+
+    cluster_montcalm_summary:
+      description: montcalm cluster (default queue, x86_64 RDMA)
+      value:
+        cluster:          montcalm
+        nodes:            10
+        cores_per_node:   32        # 2x Xeon Silver 4314 = 2 x 16 cores
+        ram_gib:          256
+        storage:          "960 GB SSD SATA"
+        network:          "10 Gbps RDMA (Broadcom BCM57414)"
+        gpu:              none
+        access:           default
+        image_platforms:  [linux/amd64]
+
+    isa_diversity_note:
+      description: ISA diversity analysis for multi-arch scheduling research
+      value:
+        x86_64_nodes:     10        # montcalm (Tier 1)
+        aarch64_nodes:    12        # estats (Tier 1, but SoC form factor)
+        armv7_nodes:      0         # none at Toulouse
+        fpga_nodes:       0         # none at Toulouse
+        npu_nodes:        0         # none (Xavier Tensor Cores ≠ NPU)
+        scheduling_note: >
+          estats nodes require linux/arm64 images and exotic OAR type.
+          Mixed x86_64 + AArch64 workload distribution is possible but
+          requires explicit architecture-aware job submission.
+          Corresponds to TOSCA audit rules ARCH-001 (not applicable —
+          AArch64 is Tier 1), ARCH-003 (mixed ISA cluster risk if
+          orchestrated together), and REDUND-001 (single ISA instances).

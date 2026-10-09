@@ -1,0 +1,681 @@
+tosca_definitions_version: tosca_simple_yaml_1_3
+
+description: >
+  TOSCA topology for the Grid'5000 Luxembourg site.
+  Source: https://www.grid5000.fr/w/Luxembourg:Hardware
+  Last API update: 2026-08-26 (commit 4418ca8f45)
+  Summary: 3 clusters, 56 nodes, 2120 CPU cores, 36 GPUs (AMD),
+           342016 GPU cores, 11.5 TiB RAM, 31.37 TB SSD (no HDD),
+           113.7 TFLOPS CPU (excl. GPUs).
+
+metadata:
+  template_name:    Grid5000-Luxembourg
+  template_version: "1.0.0"
+  template_author:  Generated from Grid5000 Reference API
+  site:             Luxembourg
+  source_url:       https://www.grid5000.fr/w/Luxembourg:Hardware
+  created:          "2026-08-31"
+  # Notable: 100% SSD storage, all AMD GPUs (ROCm ecosystem),
+  # vianden node is among the most powerful in all of Grid5000.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DATA TYPES  (reused from g5k common types)
+# ─────────────────────────────────────────────────────────────────────────────
+data_types:
+
+  g5k.datatypes.CPUInfo:
+    derived_from: tosca.datatypes.Root
+    properties:
+      architecture:
+        type: string
+        description: "ISA: x86_64, aarch64, ..."
+        required: true
+      model:
+        type: string
+        required: false
+      microarchitecture:
+        type: string
+        description: "e.g. Broadwell, Emerald Rapids, Sapphire Rapids"
+        required: false
+      num_cpus:
+        type: integer
+        description: Number of CPU sockets per node
+        required: true
+      cores_per_cpu:
+        type: integer
+        required: true
+      max_frequency_ghz:
+        type: float
+        required: false
+
+  g5k.datatypes.StorageDisk:
+    derived_from: tosca.datatypes.Root
+    properties:
+      label:
+        type: string
+        required: true
+      capacity_tb:
+        type: float
+        required: true
+      type:
+        type: string
+        description: "SSD, HDD, NVMe"
+        required: true
+      interface:
+        type: string
+        description: "SATA, SAS, NVMe"
+        required: false
+      model:
+        type: string
+        required: false
+      primary:
+        type: boolean
+        default: false
+
+  g5k.datatypes.NetworkInterface:
+    derived_from: tosca.datatypes.Root
+    properties:
+      name:
+        type: string
+        required: true
+      rate_gbps:
+        type: float
+        required: true
+      model:
+        type: string
+        required: false
+      driver:
+        type: string
+        required: false
+      sriov_enabled:
+        type: boolean
+        default: false
+      available_for_experiment:
+        type: boolean
+        default: true
+
+  g5k.datatypes.GPUInfo:
+    derived_from: tosca.datatypes.Root
+    properties:
+      count:
+        type: integer
+        required: true
+      model:
+        type: string
+        required: true
+      vendor:
+        type: string
+        description: "AMD, Nvidia, Intel"
+        required: false
+      architecture:
+        type: string
+        description: "GPU microarchitecture (e.g. CDNA2, CDNA3)"
+        required: false
+      vram_gib:
+        type: float
+        required: true
+      vram_type:
+        type: string
+        description: "HBM2e, HBM3, GDDR6, ..."
+        required: false
+      gpu_cores:
+        type: integer
+        description: Total shader / stream processors per GPU
+        required: false
+      rocm_compatible:
+        type: boolean
+        description: Supports AMD ROCm stack
+        default: false
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NODE TYPES
+# ─────────────────────────────────────────────────────────────────────────────
+node_types:
+
+  g5k.nodes.Site:
+    derived_from: tosca.nodes.Root
+    properties:
+      site_name:
+        type: string
+        required: true
+      location:
+        type: string
+        required: false
+      frontend_hostname:
+        type: string
+        required: false
+      total_nodes:
+        type: integer
+        required: false
+      total_cpu_cores:
+        type: integer
+        required: false
+      total_gpu_count:
+        type: integer
+        required: false
+      total_gpu_cores:
+        type: integer
+        required: false
+      total_ram_tib:
+        type: float
+        required: false
+      total_storage_tb:
+        type: float
+        required: false
+      hdd_nodes:
+        type: integer
+        description: Number of nodes with HDD storage
+        default: 0
+      tflops_cpu:
+        type: float
+        description: CPU-only TFLOPS
+        required: false
+    requirements:
+      - clusters:
+          capability: tosca.capabilities.Node
+          relationship: tosca.relationships.HostedOn
+          occurrences: [1, UNBOUNDED]
+
+  g5k.nodes.Cluster:
+    derived_from: tosca.nodes.Root
+    properties:
+      cluster_name:
+        type: string
+        required: true
+      access_condition:
+        type: string
+        default: default
+      oar_queue:
+        type: string
+        default: default
+      date_of_arrival:
+        type: string
+        required: false
+      manufacturing_date:
+        type: string
+        required: false
+      total_nodes:
+        type: integer
+        required: false
+      total_cores:
+        type: integer
+        required: false
+    requirements:
+      - nodes:
+          capability: tosca.capabilities.Compute
+          relationship: tosca.relationships.HostedOn
+          occurrences: [1, UNBOUNDED]
+
+  g5k.nodes.ComputeNode:
+    derived_from: tosca.nodes.Compute
+    properties:
+      node_name:
+        type: string
+        required: true
+      node_range:
+        type: string
+        required: false
+      count:
+        type: integer
+        required: true
+      hw_model:
+        type: string
+        required: false
+      manufacturing_date:
+        type: string
+        required: false
+      cpu_info:
+        type: g5k.datatypes.CPUInfo
+        required: true
+      ram_gib:
+        type: float
+        required: true
+      storage:
+        type: list
+        entry_schema:
+          type: g5k.datatypes.StorageDisk
+        required: false
+      network_interfaces:
+        type: list
+        entry_schema:
+          type: g5k.datatypes.NetworkInterface
+        required: false
+      gpu:
+        type: g5k.datatypes.GPUInfo
+        required: false
+      supported_image_platforms:
+        type: list
+        entry_schema:
+          type: string
+        default: [linux/amd64]
+    capabilities:
+      host:
+        type: tosca.capabilities.Compute
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TOPOLOGY TEMPLATE
+# ─────────────────────────────────────────────────────────────────────────────
+topology_template:
+
+  description: >
+    Grid'5000 Luxembourg site: clervaux (48 nodes, Broadwell, default queue),
+    larochette (7 nodes, Emerald Rapids + AMD MI210, default queue),
+    vianden (1 node, Sapphire Rapids + 8x AMD MI300X, exotic access).
+    All nodes use SSD storage exclusively. All GPUs are AMD (ROCm ecosystem).
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # INPUTS
+  # ───────────────────────────────────────────────────────────────────────────
+  inputs:
+    oar_queue:
+      type: string
+      default: default
+      description: OAR scheduler queue for job submission
+      constraints:
+        - valid_values: [default, production, besteffort]
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # NODE TEMPLATES
+  # ───────────────────────────────────────────────────────────────────────────
+  node_templates:
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # SITE: Luxembourg
+    # ═══════════════════════════════════════════════════════════════════════
+    site_luxembourg:
+      type: g5k.nodes.Site
+      properties:
+        site_name: Luxembourg
+        location: Luxembourg, Luxembourg
+        frontend_hostname: fluxembourg
+        total_nodes: 56
+        total_cpu_cores: 2120
+        total_gpu_count: 36
+        total_gpu_cores: 342016
+        total_ram_tib: 11.5
+        total_storage_tb: 31.37
+        hdd_nodes: 0          # 100% SSD — notable differentiator vs other sites
+        tflops_cpu: 113.7
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # CLUSTER: clervaux
+    # 48 nodes — Intel Xeon E5-2680 v4 (Broadwell) — 128 GiB — 120 GB SSD
+    # Default queue, 10 Gbps SR-IOV
+    # Note: hardware manufactured 2016, deployed 2025 (refurbished/redeployed)
+    # ═══════════════════════════════════════════════════════════════════════
+    cluster_clervaux:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: clervaux
+        access_condition: default
+        oar_queue: default
+        date_of_arrival: "2025-09-01"
+        manufacturing_date: "2016-12-29"
+        # Note: 8-year gap between manufacture and deployment suggests
+        # refurbishment or repurposing from another G5K site.
+        total_nodes: 48
+        total_cores: 1344     # 48 nodes x 2 CPUs x 14 cores
+      requirements:
+        - nodes:
+            node: site_luxembourg
+
+    clervaux_nodes:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: clervaux
+        node_range: "clervaux-[1-48]"
+        count: 48
+        hw_model: Dell PowerEdge C6320
+        manufacturing_date: "2016-12-29"
+        cpu_info:
+          architecture: x86_64
+          model: Intel Xeon E5-2680 v4
+          microarchitecture: Broadwell
+          num_cpus: 2
+          cores_per_cpu: 14
+          max_frequency_ghz: 2.40
+        ram_gib: 128.0
+        storage:
+          - label: disk0
+            capacity_tb: 0.12
+            type: SSD
+            interface: SATA
+            model: Intel SSDSC2BB12
+            primary: true
+        network_interfaces:
+          - name: eth0/enp1s0f0np0
+            rate_gbps: 10.0
+            model: Intel 82599ES 10-Gigabit SFI/SFP+ Network Connection
+            driver: ixgbe
+            sriov_enabled: true
+            available_for_experiment: true
+          - name: eth1/eno2
+            rate_gbps: 10.0
+            model: Intel 82599ES 10-Gigabit SFI/SFP+ Network Connection
+            driver: ixgbe
+            sriov_enabled: false
+            available_for_experiment: false
+        supported_image_platforms:
+          - linux/amd64
+      capabilities:
+        host:
+          properties:
+            num_cpus: 28
+            cpu_frequency: 2400 MHz
+            mem_size: 128 GiB
+      requirements:
+        - host:
+            node: cluster_clervaux
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # CLUSTER: larochette
+    # 7 nodes — Intel Xeon Platinum 8568Y+ (Emerald Rapids) — 512 GiB
+    # 4x AMD Instinct MI210 (64 GiB HBM2e) per node — 25 Gbps
+    # Default queue — newest generation Intel server CPU (2024)
+    # Note: arrival date (2024-06-24) precedes manufacturing date (2024-07-24)
+    #       likely a recording artefact in the G5K reference API
+    # ═══════════════════════════════════════════════════════════════════════
+    cluster_larochette:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: larochette
+        access_condition: default
+        oar_queue: default
+        date_of_arrival: "2024-06-24"
+        manufacturing_date: "2024-07-24"
+        total_nodes: 7
+        total_cores: 672      # 7 nodes x 2 CPUs x 48 cores
+      requirements:
+        - nodes:
+            node: site_luxembourg
+
+    larochette_nodes:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: larochette
+        node_range: "larochette-[1-7]"
+        count: 7
+        hw_model: Dell PowerEdge R760XA
+        manufacturing_date: "2024-07-24"
+        cpu_info:
+          architecture: x86_64
+          model: Intel Xeon Platinum 8568Y+
+          microarchitecture: Emerald Rapids
+          num_cpus: 2
+          cores_per_cpu: 48
+          max_frequency_ghz: 2.30   # base; boost to 3.60 GHz
+        ram_gib: 512.0
+        storage:
+          - label: disk0
+            capacity_tb: 3.2
+            type: SSD
+            interface: SAS
+            model: Dell NVMe ISE PS
+            primary: true
+        network_interfaces:
+          - name: eth0/enp1s0f0np0
+            rate_gbps: 25.0
+            model: Intel Ethernet Controller E810-XXV for SFP
+            driver: ice
+            sriov_enabled: false
+            available_for_experiment: true
+          - name: eth1/eno12409
+            rate_gbps: 25.0
+            model: Intel Ethernet Controller E810-XXV for SFP
+            driver: ice
+            sriov_enabled: false
+            available_for_experiment: false
+        gpu:
+          count: 4
+          model: AMD Instinct MI210
+          vendor: AMD
+          architecture: CDNA2
+          vram_gib: 64.0
+          vram_type: HBM2e
+          gpu_cores: 6656       # 104 CUs x 64 shader processors
+          rocm_compatible: true
+        supported_image_platforms:
+          - linux/amd64
+      capabilities:
+        host:
+          properties:
+            num_cpus: 96
+            cpu_frequency: 2300 MHz
+            mem_size: 512 GiB
+      requirements:
+        - host:
+            node: cluster_larochette
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # CLUSTER: vianden
+    # 1 node — Intel Xeon Platinum 8470 (Sapphire Rapids) — 2.0 TiB RAM
+    # 8x AMD Instinct MI300X (192 GiB HBM3) — 100 Gbps + dual 10 Gbps
+    # Access: exotic job type required
+    # One of the most powerful single nodes in all of Grid5000.
+    # Total GPU memory: 8 x 192 GiB = 1.5 TiB HBM3 on a single node.
+    # ═══════════════════════════════════════════════════════════════════════
+    cluster_vianden:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: vianden
+        access_condition: exotic
+        oar_queue: default
+        date_of_arrival: "2025-01-06"
+        manufacturing_date: "2024-07-14"
+        total_nodes: 1
+        total_cores: 104      # 1 node x 2 CPUs x 52 cores
+      requirements:
+        - nodes:
+            node: site_luxembourg
+
+    vianden_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: vianden-1
+        node_range: "vianden-1"
+        count: 1
+        hw_model: Dell PowerEdge XE9680
+        manufacturing_date: "2024-07-14"
+        cpu_info:
+          architecture: x86_64
+          model: Intel Xeon Platinum 8470
+          microarchitecture: Sapphire Rapids
+          num_cpus: 2
+          cores_per_cpu: 52
+          max_frequency_ghz: 2.00   # base; boost to 3.80 GHz
+        ram_gib: 2048.0             # 2.0 TiB
+        storage:
+          - label: disk0
+            capacity_tb: 3.2
+            type: SSD
+            interface: NVMe
+            model: Dell NVMe PM1735a MU 3.2TB
+            primary: true
+        network_interfaces:
+          - name: eth0/enp158s0f0np0
+            rate_gbps: 100.0
+            model: Mellanox Technologies MT2892 ConnectX-6 Dx
+            driver: mlx5_core
+            sriov_enabled: false
+            available_for_experiment: true
+          - name: eth1/enp158s0f1np1
+            rate_gbps: 100.0
+            model: Mellanox Technologies MT2892 ConnectX-6 Dx
+            driver: mlx5_core
+            sriov_enabled: false
+            available_for_experiment: false
+          - name: eth2/enp1s0f0np0
+            rate_gbps: 10.0
+            model: Broadcom BCM57504 NetXtreme-E
+            driver: bnxt_en
+            sriov_enabled: false
+            available_for_experiment: true
+          - name: eth3/eno12409np1
+            rate_gbps: 10.0
+            model: Broadcom BCM57504 NetXtreme-E
+            driver: bnxt_en
+            sriov_enabled: false
+            available_for_experiment: true
+          - name: eth4/eno12419np2
+            rate_gbps: 100.0
+            model: Broadcom BCM57504 NetXtreme-E
+            driver: bnxt_en
+            sriov_enabled: false
+            available_for_experiment: false
+          - name: eth5/eno12429np3
+            rate_gbps: 100.0
+            model: Broadcom BCM57504 NetXtreme-E
+            driver: bnxt_en
+            sriov_enabled: false
+            available_for_experiment: false
+          - name: eth6/eno8303
+            rate_gbps: 1.0
+            model: Broadcom BCM5720 NetXtreme
+            driver: tg3
+            sriov_enabled: false
+            available_for_experiment: false
+          - name: eth7/eno8403
+            rate_gbps: 1.0
+            model: Broadcom BCM5720 NetXtreme
+            driver: tg3
+            sriov_enabled: false
+            available_for_experiment: false
+        gpu:
+          count: 8
+          model: AMD Instinct MI300X
+          vendor: AMD
+          architecture: CDNA3
+          vram_gib: 192.0
+          vram_type: HBM3
+          gpu_cores: 19456      # 304 CUs x 64 shader processors
+          # Total GPU memory: 8 x 192 GiB = 1536 GiB (1.5 TiB) HBM3
+          # Combined compute: 8 x 19456 = 155648 shader processors
+          rocm_compatible: true
+        supported_image_platforms:
+          - linux/amd64
+      capabilities:
+        host:
+          properties:
+            num_cpus: 104
+            cpu_frequency: 2000 MHz
+            mem_size: 2048 GiB
+      requirements:
+        - host:
+            node: cluster_vianden
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # GROUPS
+  # ───────────────────────────────────────────────────────────────────────────
+  groups:
+
+    all_amd_gpu_nodes:
+      type: tosca.groups.Root
+      description: >
+        All nodes with AMD GPU accelerators — ROCm ecosystem required.
+        No Nvidia/CUDA nodes on this site.
+      members:
+        - larochette_nodes
+        - vianden_node
+
+    default_queue_nodes:
+      type: tosca.groups.Root
+      description: Nodes accessible via standard OAR default queue
+      members:
+        - clervaux_nodes
+        - larochette_nodes
+
+    exotic_nodes:
+      type: tosca.groups.Root
+      description: Nodes requiring exotic job type (oarsub -t exotic)
+      members:
+        - vianden_node
+
+    high_memory_nodes:
+      type: tosca.groups.Root
+      description: Nodes with >= 512 GiB RAM
+      members:
+        - larochette_nodes    # 512 GiB
+        - vianden_node        # 2048 GiB (2.0 TiB)
+
+    ultra_memory_nodes:
+      type: tosca.groups.Root
+      description: Nodes with >= 1 TiB RAM — vianden only
+      members:
+        - vianden_node        # 2.0 TiB CPU RAM + 1.5 TiB GPU HBM3
+
+    nvme_nodes:
+      type: tosca.groups.Root
+      description: Nodes with NVMe storage (lowest I/O latency)
+      members:
+        - vianden_node        # Dell NVMe PM1735a
+
+    high_core_count_nodes:
+      type: tosca.groups.Root
+      description: Nodes with >= 96 total CPU cores
+      members:
+        - larochette_nodes    # 96 cores (2x Platinum 8568Y+)
+        - vianden_node        # 104 cores (2x Platinum 8470)
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # OUTPUTS
+  # ───────────────────────────────────────────────────────────────────────────
+  outputs:
+
+    site_summary:
+      description: Grid'5000 Luxembourg site summary
+      value:
+        site:            { get_property: [site_luxembourg, site_name] }
+        frontend:        { get_property: [site_luxembourg, frontend_hostname] }
+        total_nodes:     { get_property: [site_luxembourg, total_nodes] }
+        total_cpu_cores: { get_property: [site_luxembourg, total_cpu_cores] }
+        total_gpu_count: { get_property: [site_luxembourg, total_gpu_count] }
+        total_gpu_cores: { get_property: [site_luxembourg, total_gpu_cores] }
+        total_ram_tib:   { get_property: [site_luxembourg, total_ram_tib] }
+        storage_all_ssd: true
+        tflops_cpu:      { get_property: [site_luxembourg, tflops_cpu] }
+
+    cluster_clervaux_summary:
+      description: clervaux cluster
+      value:
+        cluster:        clervaux
+        nodes:          48
+        cores_per_node: 28          # 2x E5-2680 v4 = 2 x 14 cores
+        ram_gib:        128
+        storage:        "120 GB SSD SATA"
+        network:        "10 Gbps SR-IOV"
+        gpu:            none
+        access:         default
+        note: "Hardware manufactured 2016, deployed 2025 (refurbished)"
+
+    cluster_larochette_summary:
+      description: larochette cluster
+      value:
+        cluster:           larochette
+        nodes:             7
+        cores_per_node:    96         # 2x Xeon Platinum 8568Y+ = 2 x 48 cores
+        ram_gib:           512
+        storage:           "3.2 TB SSD SAS"
+        network:           "25 Gbps"
+        gpu:               "4x AMD Instinct MI210 (64 GiB HBM2e, CDNA2)"
+        total_gpu_vram_gib: 256       # 4 x 64 GiB per node
+        rocm_required:     true
+        access:            default
+
+    cluster_vianden_summary:
+      description: vianden cluster (exotic access)
+      value:
+        cluster:                vianden
+        nodes:                  1
+        cores_per_node:         104       # 2x Xeon Platinum 8470 = 2 x 52 cores
+        ram_gib:                2048      # 2.0 TiB
+        storage:                "3.2 TB NVMe SSD"
+        network_primary:        "100 Gbps (Mellanox ConnectX-6 Dx)"
+        network_secondary:      "2x 10 Gbps (Broadcom BCM57504)"
+        gpu:                    "8x AMD Instinct MI300X (192 GiB HBM3, CDNA3)"
+        total_gpu_vram_gib:     1536      # 8 x 192 GiB = 1.5 TiB HBM3
+        total_gpu_shader_cores: 155648    # 8 x 19456
+        rocm_required:          true
+        access:                 "exotic (oarsub -t exotic)"
+        note: >
+          One of the most powerful single nodes in Grid5000.
+          Combined memory (CPU + GPU): 2048 + 1536 = 3584 GiB = 3.5 TiB.

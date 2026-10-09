@@ -1,0 +1,1484 @@
+tosca_definitions_version: tosca_simple_yaml_1_3
+
+description: >
+  TOSCA topology for the Grid'5000 Rennes site.
+  Source: https://www.grid5000.fr/w/Rennes:Hardware
+  Summary: 41 clusters, 173 nodes, 6420 CPU cores, 96 GPUs,
+           718592 GPU cores, 53.94 TiB RAM, 493.0 TB storage,
+           412.0 TFLOPS CPU (excl. GPUs).
+  Two queues: default (2 clusters, 89 nodes) +
+              abaca (39 clusters, 84 nodes, mostly single-node GPU workstations).
+  Naming highlights:
+    - "abacus" series echoes "abaca" queue name
+    - "roazhon" = Rennes in Breton (Gallo language) -- cultural identity
+    - "paradoxe/parasilo" -- philosophical/scientific
+  GPU core note: H100 NVL is PCIe-based (114 SMs x 128 = 14592 cores),
+                 distinct from H100 SXM5 (132 SMs x 128 = 16896 cores).
+  Records in G5K survey:
+    - 41 clusters: most clusters in any single site
+    - abacus29: AMD EPYC 9135 Zen 5 -- first Zen 5 in survey
+    - roazhon15: AMD EPYC 9555 Genoa, 1.5 TiB RAM
+    - abacus30: manufacturing date 1970-01-01 (Unix epoch placeholder)
+
+metadata:
+  template_name:    Grid5000-Rennes
+  template_version: "1.0.0"
+  template_author:  Generated from Grid5000 Reference API
+  site:             Rennes
+  source_url:       https://www.grid5000.fr/w/Rennes:Hardware
+  created:          "2026-09-15"
+
+data_types:
+
+  g5k.datatypes.CPUInfo:
+    derived_from: tosca.datatypes.Root
+    properties:
+      architecture:      { type: string, required: true }
+      model:             { type: string, required: false }
+      microarchitecture: { type: string, required: false }
+      num_cpus:          { type: integer, required: true }
+      cores_per_cpu:     { type: integer, required: true }
+      max_frequency_ghz: { type: float, required: false }
+
+  g5k.datatypes.StorageDisk:
+    derived_from: tosca.datatypes.Root
+    properties:
+      label:       { type: string, required: true }
+      capacity_tb: { type: float, required: true }
+      type:        { type: string, required: true }
+      interface:   { type: string, required: false }
+      model:       { type: string, required: false }
+      primary:     { type: boolean, default: false }
+      reservable:  { type: boolean, default: false }
+
+  g5k.datatypes.NetworkInterface:
+    derived_from: tosca.datatypes.Root
+    properties:
+      name:                     { type: string, required: true }
+      rate_gbps:                { type: float, required: true }
+      model:                    { type: string, required: false }
+      driver:                   { type: string, required: false }
+      sriov_enabled:            { type: boolean, default: false }
+      available_for_experiment: { type: boolean, default: true }
+
+  g5k.datatypes.GPUInfo:
+    derived_from: tosca.datatypes.Root
+    properties:
+      count:              { type: integer, required: true }
+      model:              { type: string, required: true }
+      vendor:             { type: string, required: false }
+      architecture:       { type: string, required: false }
+      vram_gib:           { type: float, required: true }
+      vram_type:          { type: string, required: false }
+      gpu_cores:          { type: integer, required: false }
+      compute_capability: { type: string, required: false }
+
+node_types:
+
+  g5k.nodes.Site:
+    derived_from: tosca.nodes.Root
+    properties:
+      site_name:         { type: string, required: true }
+      location:          { type: string, required: false }
+      frontend_hostname: { type: string, required: false }
+      total_nodes:       { type: integer, required: false }
+      total_cpu_cores:   { type: integer, required: false }
+      total_gpu_count:   { type: integer, default: 0 }
+      total_gpu_cores:   { type: integer, default: 0 }
+      total_ram_tib:     { type: float, required: false }
+      total_storage_tb:  { type: float, required: false }
+      tflops_cpu:        { type: float, required: false }
+
+  g5k.nodes.Cluster:
+    derived_from: tosca.nodes.Root
+    properties:
+      cluster_name:       { type: string, required: true }
+      access_condition:   { type: string, default: default }
+      oar_queue:          { type: string, default: default }
+      date_of_arrival:    { type: string, required: false }
+      manufacturing_date: { type: string, required: false }
+      total_nodes:        { type: integer, required: false }
+      total_cores:        { type: integer, required: false }
+      max_walltime_hours: { type: integer, required: false }
+
+  g5k.nodes.ComputeNode:
+    derived_from: tosca.nodes.Compute
+    properties:
+      node_name:          { type: string, required: true }
+      node_range:         { type: string, required: false }
+      count:              { type: integer, required: true }
+      hw_model:           { type: string, required: false }
+      manufacturing_date: { type: string, required: false }
+      cpu_info:           { type: g5k.datatypes.CPUInfo, required: true }
+      ram_gib:            { type: float, required: true }
+      storage:            { type: list, entry_schema: { type: g5k.datatypes.StorageDisk }, required: false }
+      network_interfaces: { type: list, entry_schema: { type: g5k.datatypes.NetworkInterface }, required: false }
+      gpu:                { type: g5k.datatypes.GPUInfo, required: false }
+      supported_image_platforms: { type: list, entry_schema: { type: string }, required: false }
+
+topology_template:
+
+  node_templates:
+
+    site_rennes:
+      type: g5k.nodes.Site
+      properties:
+        site_name:         Rennes
+        location:          "Rennes, France"
+        frontend_hostname: frennes
+        total_nodes:       173
+        total_cpu_cores:   6420
+        total_gpu_count:   96
+        total_gpu_cores:   718592
+        total_ram_tib:     53.94
+        total_storage_tb:  493.0
+        tflops_cpu:        412.0
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # DEFAULT QUEUE: paradoxe + parasilo (89 nodes total)
+    # ═══════════════════════════════════════════════════════════════════════
+
+    cluster_paradoxe:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: paradoxe
+        access_condition: default
+        oar_queue: default
+        date_of_arrival: "2024-01-02"
+        manufacturing_date: "2023-05-27"
+        total_nodes: 64
+        total_cores: 3328
+
+    # 2 sub-groups differ only in SSD model (HP MK001920GZXRC vs GXNZL)
+    paradoxe_group_a:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: paradoxe
+        node_range: "paradoxe-[1-32]"
+        count: 32
+        hw_model: HPE ProLiant DL360 Gen10+
+        manufacturing_date: "2023-05-27"
+        cpu_info:
+          architecture: x86_64
+          model: Intel Xeon Gold 5320
+          microarchitecture: Ice Lake-SP
+          num_cpus: 2
+          cores_per_cpu: 26
+          max_frequency_ghz: 2.20
+        ram_gib: 384.0
+        storage:
+          - { label: disk0, capacity_tb: 1.92, type: SSD, interface: SATA, model: "HP MK001920GZXRC", primary: true }
+          - { label: disk1, capacity_tb: 1.92, type: SSD, interface: SATA, model: "HP MK001920GZXRC" }
+        network_interfaces:
+          - { name: eth0/ens10f0np0, rate_gbps: 25.0, model: "Broadcom BCM57414 RDMA", driver: bnxt_en, available_for_experiment: true }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_paradoxe }
+
+    paradoxe_group_b:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: paradoxe
+        node_range: "paradoxe-[33-64]"
+        count: 32
+        hw_model: HPE ProLiant DL360 Gen10+
+        manufacturing_date: "2023-05-27"
+        cpu_info:
+          architecture: x86_64
+          model: Intel Xeon Gold 5320
+          microarchitecture: Ice Lake-SP
+          num_cpus: 2
+          cores_per_cpu: 26
+          max_frequency_ghz: 2.20
+        ram_gib: 384.0
+        storage:
+          - { label: disk0, capacity_tb: 1.92, type: SSD, interface: SATA, model: "HP MK001920GXNZL", primary: true }
+          - { label: disk1, capacity_tb: 1.92, type: SSD, interface: SATA, model: "HP MK001920GXNZL" }
+        network_interfaces:
+          - { name: eth0/ens10f0np0, rate_gbps: 25.0, model: "Broadcom BCM57414 RDMA", driver: bnxt_en, available_for_experiment: true }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_paradoxe }
+
+    cluster_parasilo:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: parasilo
+        access_condition: default
+        oar_queue: default
+        date_of_arrival: "2015-01-13"
+        manufacturing_date: "2015-01-13"
+        total_nodes: 25
+        total_cores: 400
+
+    # Condensed: 4 sub-groups differ only in HDD model (minor variations)
+    parasilo_main:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: parasilo
+        node_range: "parasilo-[1-28]"
+        count: 25
+        hw_model: Dell PowerEdge R630
+        manufacturing_date: "2015-01-13"
+        cpu_info:
+          architecture: x86_64
+          model: Intel Xeon E5-2630 v3
+          microarchitecture: Haswell
+          num_cpus: 2
+          cores_per_cpu: 8
+          max_frequency_ghz: 2.40
+        ram_gib: 128.0
+        storage:
+          - { label: disk0, capacity_tb: 0.6,  type: HDD, interface: SAS, model: "Seagate ST600MM0006", primary: true }
+          - { label: disk1, capacity_tb: 0.6,  type: HDD, interface: SAS, reservable: true }
+          - { label: disk2, capacity_tb: 0.6,  type: HDD, interface: SAS, reservable: true }
+          - { label: disk3, capacity_tb: 0.6,  type: HDD, interface: SAS, reservable: true }
+          - { label: disk4, capacity_tb: 0.6,  type: HDD, interface: SAS, reservable: true }
+          - { label: disk5, capacity_tb: 0.2,  type: SSD, interface: SAS, reservable: true }
+        network_interfaces:
+          - { name: eth0/eno1, rate_gbps: 10.0, model: "Intel 82599ES", driver: ixgbe, sriov_enabled: true, available_for_experiment: true }
+          - { name: eth1/eno2, rate_gbps: 10.0, model: "Intel 82599ES", driver: ixgbe, sriov_enabled: true, available_for_experiment: true }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_parasilo }
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # ABACA QUEUE: abacus series (mostly 1 node each, GPU workstations)
+    # ═══════════════════════════════════════════════════════════════════════
+
+    cluster_abacus1:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: abacus1
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2023-10-24"
+        manufacturing_date: "2016-07-27"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    abacus1_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: abacus1-1
+        node_range: "abacus1-1"
+        count: 1
+        hw_model: Dell PowerEdge R730
+        manufacturing_date: "2016-07-27"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon E5-2650 v4", microarchitecture: Broadwell, num_cpus: 2, cores_per_cpu: 12, max_frequency_ghz: 2.20 }
+        ram_gib: 128.0
+        storage: [ { label: disk0, capacity_tb: 0.299, type: HDD, interface: SATA, primary: true } ]
+        network_interfaces: [ { name: eth0/eno3, rate_gbps: 1.0, model: "Intel I350", driver: igb, available_for_experiment: true } ]
+        gpu: { count: 2, model: "Nvidia Tesla P100-PCIE-16GB", vendor: Nvidia, architecture: Pascal, vram_gib: 16.0, vram_type: HBM2, gpu_cores: 3584, compute_capability: "6.0" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_abacus1 }
+
+    cluster_abacus2:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: abacus2
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2023-11-10"
+        manufacturing_date: "2017-08-15"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    abacus2_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: abacus2-1
+        node_range: "abacus2-1"
+        count: 1
+        hw_model: Dell PowerEdge R730
+        manufacturing_date: "2017-08-15"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon E5-2609 v4", microarchitecture: Broadwell, num_cpus: 2, cores_per_cpu: 8, max_frequency_ghz: 1.70 }
+        ram_gib: 64.0
+        storage: [ { label: disk0, capacity_tb: 0.299, type: HDD, interface: SAS, primary: true } ]
+        network_interfaces: [ { name: eth0/eno1, rate_gbps: 1.0, model: "Intel I350", driver: igb, sriov_enabled: true, available_for_experiment: true } ]
+        gpu: { count: 2, model: "Nvidia Tesla P100-PCIE-16GB", vendor: Nvidia, architecture: Pascal, vram_gib: 16.0, vram_type: HBM2, gpu_cores: 3584, compute_capability: "6.0" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_abacus2 }
+
+    cluster_abacus3:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: abacus3
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2023-10-13"
+        manufacturing_date: "2017-07-05"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    abacus3_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: abacus3-1
+        node_range: "abacus3-1"
+        count: 1
+        hw_model: Dell PowerEdge T640
+        manufacturing_date: "2017-07-05"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon E5-2620 v4", microarchitecture: Broadwell, num_cpus: 2, cores_per_cpu: 8, max_frequency_ghz: 2.10 }
+        ram_gib: 128.0
+        storage:
+          - { label: disk0, capacity_tb: 0.299, type: HDD, primary: true }
+          - { label: disk1, capacity_tb: 0.959, type: HDD }
+          - { label: disk2, capacity_tb: 8.0,   type: HDD }
+        network_interfaces: [ { name: eth0/eno1, rate_gbps: 1.0, model: "Intel I350", driver: igb, available_for_experiment: true } ]
+        gpu: { count: 4, model: "Nvidia RTX A5000", vendor: Nvidia, architecture: Ampere, vram_gib: 24.0, vram_type: GDDR6, gpu_cores: 8192, compute_capability: "8.6" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_abacus3 }
+
+    cluster_abacus4:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: abacus4
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2023-10-09"
+        manufacturing_date: "2017-11-13"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    abacus4_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: abacus4-1
+        node_range: "abacus4-1"
+        count: 1
+        hw_model: Dell PowerEdge R740
+        manufacturing_date: "2017-11-13"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon Silver 4114", microarchitecture: Skylake-SP, num_cpus: 2, cores_per_cpu: 10, max_frequency_ghz: 2.20 }
+        ram_gib: 128.0
+        storage: [ { label: disk0, capacity_tb: 0.959, type: HDD, interface: SAS, primary: true } ]
+        network_interfaces: [ { name: eth0/eno4, rate_gbps: 1.0, model: "Intel I350", driver: igb, available_for_experiment: true } ]
+        gpu: { count: 2, model: "Nvidia A40", vendor: Nvidia, architecture: Ampere, vram_gib: 45.0, vram_type: GDDR6, gpu_cores: 10752, compute_capability: "8.6" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_abacus4 }
+
+    cluster_abacus5:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: abacus5
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2023-10-24"
+        manufacturing_date: "2018-05-06"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    abacus5_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: abacus5-1
+        node_range: "abacus5-1"
+        count: 1
+        hw_model: Dell PowerEdge R740
+        manufacturing_date: "2018-05-06"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon Gold 5115", microarchitecture: Skylake-SP, num_cpus: 2, cores_per_cpu: 10, max_frequency_ghz: 2.40 }
+        ram_gib: 192.0
+        storage: [ { label: disk0, capacity_tb: 1.2, type: HDD, interface: SAS, primary: true } ]
+        network_interfaces: [ { name: eth0/eno3, rate_gbps: 1.0, model: "Intel I350", driver: igb, available_for_experiment: true } ]
+        gpu: { count: 2, model: "Nvidia Tesla P100-PCIE-16GB", vendor: Nvidia, architecture: Pascal, vram_gib: 16.0, vram_type: HBM2, gpu_cores: 3584, compute_capability: "6.0" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_abacus5 }
+
+    cluster_abacus8:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: abacus8
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2023-11-17"
+        manufacturing_date: "2018-11-09"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    abacus8_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: abacus8-1
+        node_range: "abacus8-1"
+        count: 1
+        hw_model: Dell PowerEdge R7920
+        manufacturing_date: "2018-11-09"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon Gold 5120", microarchitecture: Skylake-SP, num_cpus: 2, cores_per_cpu: 14, max_frequency_ghz: 2.20 }
+        ram_gib: 192.0
+        storage:
+          - { label: disk0, capacity_tb: 0.512, type: SSD, interface: SATA, model: "SK Hynix SC311 S", primary: true }
+          - { label: disk1, capacity_tb: 0.512, type: SSD, interface: SATA, model: "SK Hynix SC311 S" }
+        network_interfaces: [ { name: eth0/eno3, rate_gbps: 1.0, model: "Intel I350", driver: igb, available_for_experiment: true } ]
+        gpu: { count: 2, model: "Nvidia Quadro P6000", vendor: Nvidia, architecture: Pascal, vram_gib: 24.0, vram_type: GDDR5X, gpu_cores: 3840, compute_capability: "6.1" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_abacus8 }
+
+    cluster_abacus9:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: abacus9
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2023-11-06"
+        manufacturing_date: "2018-12-12"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    abacus9_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: abacus9-1
+        node_range: "abacus9-1"
+        count: 1
+        hw_model: Dell PowerEdge C4140
+        manufacturing_date: "2018-12-12"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon Silver 4114", microarchitecture: Skylake-SP, num_cpus: 2, cores_per_cpu: 10, max_frequency_ghz: 2.20 }
+        ram_gib: 192.0
+        storage: [ { label: disk0, capacity_tb: 0.239, type: HDD, interface: SATA, primary: true } ]
+        network_interfaces: [ { name: eth0/eno1, rate_gbps: 10.0, model: "Intel X710", driver: i40e, available_for_experiment: true } ]
+        gpu: { count: 4, model: "Nvidia Tesla V100-SXM2-32GB", vendor: Nvidia, architecture: Volta, vram_gib: 32.0, vram_type: HBM2, gpu_cores: 5120, compute_capability: "7.0" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_abacus9 }
+
+    cluster_abacus10:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: abacus10
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2023-10-30"
+        manufacturing_date: "2018-12-03"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    abacus10_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: abacus10-1
+        node_range: "abacus10-1"
+        count: 1
+        hw_model: Dell PowerEdge T640
+        manufacturing_date: "2018-12-03"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon Silver 4114", microarchitecture: Skylake-SP, num_cpus: 2, cores_per_cpu: 10, max_frequency_ghz: 2.20 }
+        ram_gib: 192.0
+        storage:
+          - { label: disk0, capacity_tb: 0.959, type: HDD, interface: SAS, primary: true }
+          - { label: disk1, capacity_tb: 0.299, type: HDD, interface: SAS }
+          - { label: disk2, capacity_tb: 6.0,   type: HDD, interface: SAS }
+        network_interfaces: [ { name: eth0/enp137s0f0, rate_gbps: 1.0, model: "Intel I350", driver: igb, available_for_experiment: true } ]
+        gpu: { count: 4, model: "Nvidia RTX A5000", vendor: Nvidia, architecture: Ampere, vram_gib: 24.0, vram_type: GDDR6, gpu_cores: 8192, compute_capability: "8.6" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_abacus10 }
+
+    cluster_abacus11:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: abacus11
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2023-10-24"
+        manufacturing_date: "2018-12-03"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    abacus11_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: abacus11-1
+        node_range: "abacus11-1"
+        count: 1
+        hw_model: Dell PowerEdge T640
+        manufacturing_date: "2018-12-03"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon Silver 4114", microarchitecture: Skylake-SP, num_cpus: 2, cores_per_cpu: 10, max_frequency_ghz: 2.20 }
+        ram_gib: 192.0
+        storage:
+          - { label: disk0, capacity_tb: 0.299, type: HDD, interface: SAS, primary: true }
+          - { label: disk1, capacity_tb: 0.959, type: HDD, interface: SAS }
+          - { label: disk2, capacity_tb: 8.0,   type: HDD, interface: SAS }
+        network_interfaces: [ { name: eth0/enp137s0f0, rate_gbps: 1.0, model: "Intel I350", driver: igb, available_for_experiment: true } ]
+        gpu: { count: 2, model: "Nvidia RTX A5000", vendor: Nvidia, architecture: Ampere, vram_gib: 24.0, vram_type: GDDR6, gpu_cores: 8192, compute_capability: "8.6" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_abacus11 }
+
+    cluster_abacus12:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: abacus12
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2023-11-17"
+        manufacturing_date: "2019-10-28"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    abacus12_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: abacus12-1
+        node_range: "abacus12-1"
+        count: 1
+        hw_model: Dell PowerEdge R740
+        manufacturing_date: "2019-10-28"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon Gold 6248", microarchitecture: Cascade Lake-SP, num_cpus: 2, cores_per_cpu: 20, max_frequency_ghz: 2.50 }
+        ram_gib: 384.0
+        storage: [ { label: disk0, capacity_tb: 0.299, type: HDD, interface: SAS, primary: true } ]
+        network_interfaces: [ { name: eth0/eno1, rate_gbps: 10.0, model: "Intel X710", driver: i40e, available_for_experiment: true } ]
+        gpu: { count: 3, model: "Nvidia Tesla V100-PCIE-32GB", vendor: Nvidia, architecture: Volta, vram_gib: 32.0, vram_type: HBM2, gpu_cores: 5120, compute_capability: "7.0" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_abacus12 }
+
+    cluster_abacus14:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: abacus14
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2023-11-08"
+        manufacturing_date: "2019-09-26"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    abacus14_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: abacus14-1
+        node_range: "abacus14-1"
+        count: 1
+        hw_model: Dell PowerEdge C4140
+        manufacturing_date: "2019-09-26"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon Silver 4214", microarchitecture: Cascade Lake-SP, num_cpus: 2, cores_per_cpu: 12, max_frequency_ghz: 2.20 }
+        ram_gib: 384.0
+        storage:
+          - { label: disk0, capacity_tb: 0.24, type: SSD, interface: SATA, model: "Micron MTFDDAV240TCB", primary: true }
+          - { label: disk1, capacity_tb: 0.24, type: SSD, interface: SATA, model: "Micron MTFDDAV240TCB" }
+        network_interfaces: [ { name: eth0/eno1, rate_gbps: 10.0, model: "Intel X710", driver: i40e, available_for_experiment: true } ]
+        gpu: { count: 4, model: "Nvidia Tesla V100-PCIE-32GB", vendor: Nvidia, architecture: Volta, vram_gib: 32.0, vram_type: HBM2, gpu_cores: 5120, compute_capability: "7.0" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_abacus14 }
+
+    cluster_abacus16:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: abacus16
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2023-10-16"
+        manufacturing_date: "2019-09-26"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    abacus16_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: abacus16-1
+        node_range: "abacus16-1"
+        count: 1
+        hw_model: Dell PowerEdge C4140
+        manufacturing_date: "2019-09-26"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon Silver 4214", microarchitecture: Cascade Lake-SP, num_cpus: 2, cores_per_cpu: 12, max_frequency_ghz: 2.20 }
+        ram_gib: 384.0
+        storage: [ { label: disk0, capacity_tb: 0.239, type: HDD, primary: true } ]
+        network_interfaces: [ { name: eth0/eno1, rate_gbps: 10.0, model: "Intel X710", driver: i40e, available_for_experiment: true } ]
+        gpu: { count: 4, model: "Nvidia Tesla V100-PCIE-32GB", vendor: Nvidia, architecture: Volta, vram_gib: 32.0, vram_type: HBM2, gpu_cores: 5120, compute_capability: "7.0" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_abacus16 }
+
+    cluster_abacus17:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: abacus17
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2023-11-17"
+        manufacturing_date: "2020-11-25"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    abacus17_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: abacus17-1
+        node_range: "abacus17-1"
+        count: 1
+        hw_model: Dell PowerEdge R7525
+        manufacturing_date: "2020-11-25"
+        cpu_info: { architecture: x86_64, model: "AMD EPYC 7282", microarchitecture: Zen 2, num_cpus: 2, cores_per_cpu: 16, max_frequency_ghz: 2.80 }
+        ram_gib: 256.0
+        storage:
+          - { label: disk0, capacity_tb: 0.24,  type: SSD, interface: SATA, primary: true }
+          - { label: disk1, capacity_tb: 0.96,  type: SSD, interface: SATA }
+        network_interfaces: [ { name: eth0/eno1, rate_gbps: 1.0, model: "Broadcom BCM5720", driver: tg3, available_for_experiment: true } ]
+        gpu: { count: 2, model: "Nvidia Quadro RTX 6000", vendor: Nvidia, architecture: Turing, vram_gib: 23.0, vram_type: GDDR6, gpu_cores: 4608, compute_capability: "7.5" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_abacus17 }
+
+    cluster_abacus18:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: abacus18
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2023-10-11"
+        manufacturing_date: "2020-11-13"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    abacus18_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: abacus18-1
+        node_range: "abacus18-1"
+        count: 1
+        hw_model: Dell PowerEdge R7525
+        manufacturing_date: "2020-11-13"
+        cpu_info: { architecture: x86_64, model: "AMD EPYC 7352", microarchitecture: Zen 2, num_cpus: 2, cores_per_cpu: 24, max_frequency_ghz: 2.30 }
+        ram_gib: 256.0
+        storage:
+          - { label: disk0, capacity_tb: 0.24,  type: SSD, interface: SATA, primary: true }
+          - { label: disk1, capacity_tb: 0.96,  type: SSD, interface: SATA }
+        network_interfaces: [ { name: eth0/eno1, rate_gbps: 1.0, model: "Broadcom BCM5720", driver: tg3, available_for_experiment: true } ]
+        gpu: { count: 3, model: "Nvidia Quadro RTX 6000", vendor: Nvidia, architecture: Turing, vram_gib: 23.0, vram_type: GDDR6, gpu_cores: 4608, compute_capability: "7.5" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_abacus18 }
+
+    cluster_abacus19:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: abacus19
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2023-11-17"
+        manufacturing_date: "2020-11-12"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    abacus19_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: abacus19-1
+        node_range: "abacus19-1"
+        count: 1
+        hw_model: Dell PowerEdge R740
+        manufacturing_date: "2020-11-12"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon Gold 5220R", microarchitecture: Cascade Lake-SP, num_cpus: 2, cores_per_cpu: 24, max_frequency_ghz: 2.20 }
+        ram_gib: 384.0
+        storage:
+          - { label: disk0, capacity_tb: 0.96, type: SSD, interface: SATA, primary: true }
+          - { label: disk1, capacity_tb: 0.24, type: SSD, interface: SATA }
+        network_interfaces: [ { name: eth0/eno3, rate_gbps: 1.0, model: "Intel I350", driver: igb, available_for_experiment: true } ]
+        gpu: { count: 2, model: "Nvidia Quadro RTX 8000", vendor: Nvidia, architecture: Turing, vram_gib: 45.0, vram_type: GDDR6, gpu_cores: 4608, compute_capability: "7.5" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_abacus19 }
+
+    cluster_abacus20:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: abacus20
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2023-10-11"
+        manufacturing_date: "2020-12-29"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    abacus20_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: abacus20-1
+        node_range: "abacus20-1"
+        count: 1
+        hw_model: Dell PowerEdge T640
+        manufacturing_date: "2020-12-29"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon Gold 5220R", microarchitecture: Cascade Lake-SP, num_cpus: 2, cores_per_cpu: 24, max_frequency_ghz: 2.20 }
+        ram_gib: 768.0
+        storage:
+          - { label: disk0, capacity_tb: 0.48,  type: SSD, interface: SATA, model: "Samsung MZ7LH480HBHQ0D3", primary: true }
+          - { label: disk1, capacity_tb: 1.92,  type: SSD, interface: SATA, model: "Samsung MZILT1T9HBJR0D3" }
+        network_interfaces: [ { name: eth0/eno1np0, rate_gbps: 1.0, model: "Broadcom BCM57416 RDMA", driver: bnxt_en, available_for_experiment: true } ]
+        gpu: { count: 4, model: "Nvidia Quadro RTX 8000", vendor: Nvidia, architecture: Turing, vram_gib: 45.0, vram_type: GDDR6, gpu_cores: 4608, compute_capability: "7.5" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_abacus20 }
+
+    cluster_abacus21:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: abacus21
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2023-10-24"
+        manufacturing_date: "2021-08-02"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    abacus21_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: abacus21-1
+        node_range: "abacus21-1"
+        count: 1
+        hw_model: Dell PowerEdge R7525
+        manufacturing_date: "2021-08-02"
+        cpu_info: { architecture: x86_64, model: "AMD EPYC 7F72", microarchitecture: Zen 2, num_cpus: 2, cores_per_cpu: 24, max_frequency_ghz: 3.20 }
+        ram_gib: 512.0
+        storage:
+          - { label: disk0, capacity_tb: 3.84, type: SSD, interface: SAS, model: "Toshiba KPM5WRUG3T84", primary: true }
+          - { label: disk1, capacity_tb: 0.479, type: SSD, interface: SAS }
+          - { label: disk2, capacity_tb: 0.479, type: SSD, interface: SAS }
+        network_interfaces: [ { name: eth0/eno1, rate_gbps: 1.0, model: "Broadcom BCM5720", driver: tg3, available_for_experiment: true } ]
+        gpu: { count: 3, model: "Nvidia A100-PCIE-40GB", vendor: Nvidia, architecture: Ampere, vram_gib: 40.0, vram_type: HBM2e, gpu_cores: 6912, compute_capability: "8.0" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_abacus21 }
+
+    cluster_abacus22:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: abacus22
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2023-12-04"
+        manufacturing_date: "2022-01-14"
+        total_nodes: 3
+        max_walltime_hours: 168
+
+    abacus22_3gpu:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: abacus22
+        node_range: "abacus22-[1-2]"
+        count: 2
+        hw_model: HPE ProLiant DL385 Gen10 Plus v2
+        manufacturing_date: "2022-01-14"
+        cpu_info: { architecture: x86_64, model: "AMD EPYC 7413", microarchitecture: Zen 3, num_cpus: 2, cores_per_cpu: 24, max_frequency_ghz: 2.65 }
+        ram_gib: 512.0
+        storage:
+          - { label: disk0, capacity_tb: 1.92, type: SSD, primary: true }
+          - { label: disk1, capacity_tb: 0.96, type: SSD }
+        network_interfaces: [ { name: eth0/ens10f0, rate_gbps: 10.0, model: "Intel E810-XXV", driver: ice, sriov_enabled: true, available_for_experiment: true } ]
+        gpu: { count: 3, model: "Nvidia A40", vendor: Nvidia, architecture: Ampere, vram_gib: 45.0, vram_type: GDDR6, gpu_cores: 10752, compute_capability: "8.6" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_abacus22 }
+
+    abacus22_1gpu:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: abacus22-3
+        node_range: "abacus22-3"
+        count: 1
+        hw_model: HPE ProLiant DL385 Gen10 Plus v2
+        manufacturing_date: "2022-01-14"
+        cpu_info: { architecture: x86_64, model: "AMD EPYC 7413", microarchitecture: Zen 3, num_cpus: 2, cores_per_cpu: 24, max_frequency_ghz: 2.65 }
+        ram_gib: 512.0
+        storage:
+          - { label: disk0, capacity_tb: 1.92, type: SSD, primary: true }
+          - { label: disk1, capacity_tb: 0.96, type: SSD }
+        network_interfaces: [ { name: eth0/ens10f0, rate_gbps: 10.0, model: "Intel E810-XXV", driver: ice, sriov_enabled: true, available_for_experiment: true } ]
+        gpu: { count: 1, model: "Nvidia A40", vendor: Nvidia, architecture: Ampere, vram_gib: 45.0, vram_type: GDDR6, gpu_cores: 10752, compute_capability: "8.6" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_abacus22 }
+
+    cluster_abacus25:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: abacus25
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2023-06-05"
+        manufacturing_date: "2022-10-24"
+        total_nodes: 4
+        max_walltime_hours: 168
+
+    abacus25_nodes:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: abacus25
+        node_range: "abacus25-[1-4]"
+        count: 4
+        hw_model: HPE ProLiant DL385 Gen10+ v2
+        manufacturing_date: "2022-10-24"
+        cpu_info: { architecture: x86_64, model: "AMD EPYC 7413", microarchitecture: Zen 3, num_cpus: 2, cores_per_cpu: 24, max_frequency_ghz: 2.65 }
+        ram_gib: 512.0
+        storage:
+          - { label: disk0, capacity_tb: 0.96, type: SSD, primary: true }
+          - { label: disk1, capacity_tb: 0.96, type: SSD }
+          - { label: disk2, capacity_tb: 0.96, type: SSD }
+        network_interfaces: [ { name: eth0/ens10f0, rate_gbps: 10.0, model: "Intel X710", driver: i40e, sriov_enabled: true, available_for_experiment: true } ]
+        gpu: { count: 3, model: "Nvidia A40", vendor: Nvidia, architecture: Ampere, vram_gib: 45.0, vram_type: GDDR6, gpu_cores: 10752, compute_capability: "8.6" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_abacus25 }
+
+    cluster_abacus26:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: abacus26
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-01-17"
+        manufacturing_date: "2024-10-08"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    abacus26_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: abacus26-1
+        node_range: "abacus26-1"
+        count: 1
+        hw_model: HPE ProLiant DL380 Gen11
+        manufacturing_date: "2024-10-08"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon Gold 6442Y", microarchitecture: Sapphire Rapids, num_cpus: 2, cores_per_cpu: 24, max_frequency_ghz: 2.60 }
+        ram_gib: 256.0
+        storage: [ { label: disk0, capacity_tb: 1.6, type: SSD, interface: NVMe, model: "Samsung MO001600KYDMU", primary: true } ]
+        network_interfaces: [ { name: eth0/enp1s0f0np0, rate_gbps: 10.0, model: "Broadcom BCM57414 RDMA", driver: bnxt_en, available_for_experiment: true } ]
+        gpu: { count: 2, model: "Nvidia L40S", vendor: Nvidia, architecture: Ada Lovelace, vram_gib: 45.0, vram_type: GDDR6, gpu_cores: 18176, compute_capability: "8.9" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_abacus26 }
+
+    cluster_abacus27:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: abacus27
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-01-15"
+        manufacturing_date: "2024-11-26"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    abacus27_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: abacus27-1
+        node_range: "abacus27-1"
+        count: 1
+        hw_model: HPE ProLiant DL385 Gen11
+        manufacturing_date: "2024-11-26"
+        cpu_info: { architecture: x86_64, model: "AMD EPYC 9254", microarchitecture: Zen 4, num_cpus: 2, cores_per_cpu: 24, max_frequency_ghz: 2.90 }
+        ram_gib: 512.0
+        storage: [ { label: disk0, capacity_tb: 6.4, type: SSD, interface: SAS, model: "HPE MO006400KXPTU", primary: true } ]
+        network_interfaces: [ { name: eth0/enp1s0f0np0, rate_gbps: 10.0, model: "Broadcom BCM57414 RDMA", driver: bnxt_en, available_for_experiment: true } ]
+        gpu:
+          count: 4
+          model: Nvidia H100 NVL
+          vendor: Nvidia
+          architecture: Hopper
+          vram_gib: 94.0
+          vram_type: HBM3
+          gpu_cores: 14592
+          # H100 NVL is PCIe-based: 114 SMs x 128 cores = 14592
+          # Distinct from H100 SXM5 (132 SMs = 16896 cores)
+          compute_capability: "9.0"
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_abacus27 }
+
+    cluster_abacus28:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: abacus28
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-02-05"
+        manufacturing_date: "2020-12-05"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    abacus28_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: abacus28-1
+        node_range: "abacus28-1"
+        count: 1
+        hw_model: Dell PowerEdge C4140
+        manufacturing_date: "2020-12-05"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon Silver 4216", microarchitecture: Cascade Lake-SP, num_cpus: 2, cores_per_cpu: 16, max_frequency_ghz: 2.10 }
+        ram_gib: 384.0
+        storage: [ { label: disk0, capacity_tb: 0.48, type: SSD, interface: SATA, primary: true } ]
+        network_interfaces: [ { name: eth0/eno1, rate_gbps: 10.0, model: "Intel X710", driver: i40e, available_for_experiment: true } ]
+        gpu: { count: 4, model: "Nvidia Tesla V100-SXM2-32GB", vendor: Nvidia, architecture: Volta, vram_gib: 32.0, vram_type: HBM2, gpu_cores: 5120, compute_capability: "7.0" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_abacus28 }
+
+    cluster_abacus29:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: abacus29
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2026-01-20"
+        manufacturing_date: "2025-10-01"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    abacus29_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: abacus29-1
+        node_range: "abacus29-1"
+        count: 1
+        hw_model: HPE ProLiant DL385 Gen11
+        manufacturing_date: "2025-10-01"
+        cpu_info:
+          architecture: x86_64
+          model: AMD EPYC 9135
+          microarchitecture: Zen 5
+          # FIRST Zen 5 CPU in the 8-site G5K survey.
+          # Zen 5 (Turin family): new frontend, wider decode, improved AVX-512
+          # EPYC 9135: 16 cores per socket, high single-thread performance
+          num_cpus: 2
+          cores_per_cpu: 16
+          max_frequency_ghz: 3.40
+        ram_gib: 256.0
+        storage: [ { label: disk0, capacity_tb: 0.8, type: SSD, interface: NVMe, model: "Micron MO000800KXNXH", primary: true } ]
+        network_interfaces:
+          - { name: eth0/enp1s0f0np0, rate_gbps: 10.0, model: "Intel X710", driver: i40e, sriov_enabled: true, available_for_experiment: true }
+          - { name: eth1/ens22f1, rate_gbps: 10.0, model: "Intel X710", driver: i40e, sriov_enabled: true, available_for_experiment: true }
+        gpu: { count: 2, model: "Nvidia L40S", vendor: Nvidia, architecture: Ada Lovelace, vram_gib: 45.0, vram_type: GDDR6, gpu_cores: 18176, compute_capability: "8.9" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_abacus29 }
+
+    cluster_abacus30:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: abacus30
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2026-07-22"
+        manufacturing_date: "1970-01-01"
+        # manufacturing_date 1970-01-01 = Unix epoch placeholder (unknown date)
+        total_nodes: 2
+        max_walltime_hours: 168
+
+    abacus30_nodes:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: abacus30
+        node_range: "abacus30-[1-2]"
+        count: 2
+        hw_model: Relion XE4118GT
+        manufacturing_date: "1970-01-01"
+        cpu_info: { architecture: x86_64, model: "Intel Xeon Gold 6148", microarchitecture: Skylake-SP, num_cpus: 2, cores_per_cpu: 20, max_frequency_ghz: 2.40 }
+        ram_gib: 768.0
+        storage:
+          - { label: disk0, capacity_tb: 0.479, type: HDD, interface: SATA, primary: true }
+          - { label: disk1, capacity_tb: 0.479, type: HDD, interface: SATA }
+          - { label: disk2, capacity_tb: 3.84,  type: SSD, interface: SATA }
+          - { label: disk3, capacity_tb: 3.84,  type: SSD, interface: SATA }
+          - { label: disk4, capacity_tb: 3.84,  type: SSD, interface: SATA }
+          - { label: disk5, capacity_tb: 3.84,  type: SSD, interface: SATA }
+        network_interfaces: [ { name: eth0, rate_gbps: 1.0, model: "Intel I350", driver: igb, sriov_enabled: true, available_for_experiment: true } ]
+        gpu: { count: 8, model: "Nvidia Tesla V100-PCIE-32GB", vendor: Nvidia, architecture: Volta, vram_gib: 32.0, vram_type: HBM2, gpu_cores: 5120, compute_capability: "7.0" }
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_abacus30 }
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # ROAZHON series: "Roazhon" = Rennes in Breton
+    # No GPU — compute workstations, abaca queue
+    # ═══════════════════════════════════════════════════════════════════════
+
+    cluster_roazhon1:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: roazhon1
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2023-10-24"
+        manufacturing_date: "2018-09-20"
+        total_nodes: 1
+        max_walltime_hours: 168
+
+    roazhon1_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: roazhon1-1
+        count: 1
+        cpu_info: { architecture: x86_64, model: "Intel Xeon Gold 6154", microarchitecture: Skylake-SP, num_cpus: 2, cores_per_cpu: 18, max_frequency_ghz: 3.00 }
+        ram_gib: 384.0
+        storage: [ { label: disk0, capacity_tb: 0.799, type: HDD, primary: true } ]
+        network_interfaces: [ { name: eth0, rate_gbps: 1.0, available_for_experiment: true } ]
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_roazhon1 }
+
+    cluster_roazhon2:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: roazhon2
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2023-09-06"
+        manufacturing_date: "2018-10-22"
+        total_nodes: 1
+
+    roazhon2_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: roazhon2-1
+        count: 1
+        cpu_info: { architecture: x86_64, model: "Intel Xeon Gold 5120", microarchitecture: Skylake-SP, num_cpus: 2, cores_per_cpu: 14, max_frequency_ghz: 2.20 }
+        ram_gib: 256.0
+        storage: [ { label: disk0, capacity_tb: 0.799, type: HDD, primary: true } ]
+        network_interfaces: [ { name: eth0, rate_gbps: 1.0, available_for_experiment: true } ]
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_roazhon2 }
+
+    cluster_roazhon3:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: roazhon3
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2023-10-24"
+        manufacturing_date: "2018-11-12"
+        total_nodes: 1
+
+    roazhon3_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: roazhon3-1
+        count: 1
+        cpu_info: { architecture: x86_64, model: "Intel Xeon Gold 6142", microarchitecture: Skylake-SP, num_cpus: 2, cores_per_cpu: 16, max_frequency_ghz: 2.60 }
+        ram_gib: 1024.0
+        storage:
+          - { label: disk0, capacity_tb: 1.6, type: SSD, primary: true }
+          - { label: disk1, capacity_tb: 1.6, type: SSD }
+        network_interfaces: [ { name: eth0, rate_gbps: 10.0, available_for_experiment: true } ]
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_roazhon3 }
+
+    cluster_roazhon4:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: roazhon4
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2023-09-06"
+        manufacturing_date: "2020-12-01"
+        total_nodes: 1
+
+    roazhon4_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: roazhon4-1
+        count: 1
+        cpu_info:
+          architecture: x86_64
+          model: AMD EPYC 7H12
+          microarchitecture: Zen 2
+          num_cpus: 2
+          cores_per_cpu: 64
+          max_frequency_ghz: 2.60
+          # EPYC 7H12: high-frequency 64-core variant (HPC-optimized)
+          # 2 x 64 = 128 cores on a single node
+        ram_gib: 512.0
+        storage:
+          - { label: disk0, capacity_tb: 0.48, type: HDD, primary: true }
+          - { label: disk1, capacity_tb: 2.0,  type: HDD }
+        network_interfaces: [ { name: eth0, rate_gbps: 1.0, available_for_experiment: true } ]
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_roazhon4 }
+
+    cluster_roazhon5:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: roazhon5
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2023-10-13"
+        manufacturing_date: "2015-04-06"
+        total_nodes: 11
+
+    roazhon5_nodes:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: roazhon5
+        node_range: "roazhon5-[1-11]"
+        count: 11
+        cpu_info: { architecture: x86_64, model: "Intel Xeon E5-2660 v3", microarchitecture: Haswell, num_cpus: 2, cores_per_cpu: 10, max_frequency_ghz: 2.60 }
+        ram_gib: 128.0
+        storage: [ { label: disk0, capacity_tb: 0.598, type: HDD, primary: true } ]
+        network_interfaces: [ { name: eth0, rate_gbps: 1.0, available_for_experiment: true } ]
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_roazhon5 }
+
+    cluster_roazhon6:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: roazhon6
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2023-10-24"
+        manufacturing_date: "2017-10-25"
+        total_nodes: 4
+
+    roazhon6_nodes:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: roazhon6
+        node_range: "roazhon6-[1-4]"
+        count: 4
+        cpu_info: { architecture: x86_64, model: "Intel Xeon E5-2650 v4", microarchitecture: Broadwell, num_cpus: 2, cores_per_cpu: 12, max_frequency_ghz: 2.20 }
+        ram_gib: 192.0
+        storage: [ { label: disk0, capacity_tb: 1.2, type: HDD, primary: true } ]
+        network_interfaces: [ { name: eth0, rate_gbps: 1.0, available_for_experiment: true } ]
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_roazhon6 }
+
+    cluster_roazhon7:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: roazhon7
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2023-12-20"
+        manufacturing_date: "2017-06-27"
+        total_nodes: 3
+
+    roazhon7_nodes:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: roazhon7
+        node_range: "roazhon7-[1-3]"
+        count: 3
+        cpu_info: { architecture: x86_64, model: "Intel Xeon E5-2650 v4", microarchitecture: Broadwell, num_cpus: 2, cores_per_cpu: 12, max_frequency_ghz: 2.20 }
+        ram_gib: 128.0
+        storage: [ { label: disk0, capacity_tb: 1.0, type: HDD, primary: true } ]
+        network_interfaces: [ { name: eth0, rate_gbps: 10.0, sriov_enabled: true, available_for_experiment: true } ]
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_roazhon7 }
+
+    cluster_roazhon8:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: roazhon8
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2023-10-24"
+        manufacturing_date: "2017-06-22"
+        total_nodes: 4
+
+    roazhon8_nodes:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: roazhon8
+        node_range: "roazhon8-[1-4]"
+        count: 4
+        cpu_info: { architecture: x86_64, model: "Intel Xeon E5-2650 v4", microarchitecture: Broadwell, num_cpus: 2, cores_per_cpu: 12, max_frequency_ghz: 2.20 }
+        ram_gib: 256.0
+        storage: [ { label: disk0, capacity_tb: 1.0, type: HDD, primary: true } ]
+        network_interfaces: [ { name: eth0, rate_gbps: 10.0, sriov_enabled: true, available_for_experiment: true } ]
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_roazhon8 }
+
+    cluster_roazhon9:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: roazhon9
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2023-10-09"
+        manufacturing_date: "2017-12-15"
+        total_nodes: 4
+
+    roazhon9_nodes:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: roazhon9
+        node_range: "roazhon9-[1-4]"
+        count: 4
+        cpu_info: { architecture: x86_64, model: "Intel Xeon Gold 5118", microarchitecture: Skylake-SP, num_cpus: 2, cores_per_cpu: 12, max_frequency_ghz: 2.30 }
+        ram_gib: 512.0
+        storage: [ { label: disk0, capacity_tb: 1.2, type: HDD, primary: true } ]
+        network_interfaces: [ { name: eth0, rate_gbps: 10.0, available_for_experiment: true } ]
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_roazhon9 }
+
+    cluster_roazhon10:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: roazhon10
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2023-10-24"
+        manufacturing_date: "2019-09-25"
+        total_nodes: 4
+
+    roazhon10_nodes:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: roazhon10
+        node_range: "roazhon10-[1-4]"
+        count: 4
+        cpu_info: { architecture: x86_64, model: "Intel Xeon Gold 5220", microarchitecture: Cascade Lake-SP, num_cpus: 2, cores_per_cpu: 18, max_frequency_ghz: 2.20 }
+        ram_gib: 384.0
+        storage:
+          - { label: disk0, capacity_tb: 0.239, type: HDD, primary: true }
+          - { label: disk1, capacity_tb: 1.92,  type: HDD }
+        network_interfaces: [ { name: eth0, rate_gbps: 10.0, available_for_experiment: true } ]
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_roazhon10 }
+
+    cluster_roazhon11:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: roazhon11
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2023-10-24"
+        manufacturing_date: "2012-09-14"
+        total_nodes: 3
+
+    roazhon11_nodes:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: roazhon11
+        node_range: "roazhon11-[1-3]"
+        count: 3
+        cpu_info: { architecture: x86_64, model: "Intel Xeon E5-2660", microarchitecture: Sandy Bridge, num_cpus: 2, cores_per_cpu: 8, max_frequency_ghz: 2.20 }
+        ram_gib: 64.0
+        storage: [ { label: disk0, capacity_tb: 0.597, type: HDD, primary: true } ]
+        network_interfaces: [ { name: eth0, rate_gbps: 1.0, sriov_enabled: true, available_for_experiment: true } ]
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_roazhon11 }
+
+    cluster_roazhon12:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: roazhon12
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2023-10-24"
+        manufacturing_date: "2012-09-14"
+        total_nodes: 4
+
+    roazhon12_nodes:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: roazhon12
+        node_range: "roazhon12-[1-4]"
+        count: 4
+        cpu_info: { architecture: x86_64, model: "Intel Xeon E5-2660", microarchitecture: Sandy Bridge, num_cpus: 2, cores_per_cpu: 8, max_frequency_ghz: 2.20 }
+        ram_gib: 128.0
+        storage: [ { label: disk0, capacity_tb: 0.597, type: HDD, primary: true } ]
+        network_interfaces: [ { name: eth0, rate_gbps: 1.0, sriov_enabled: true, available_for_experiment: true } ]
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_roazhon12 }
+
+    cluster_roazhon13:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: roazhon13
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2023-10-06"
+        manufacturing_date: "2019-09-25"
+        total_nodes: 8
+
+    roazhon13_nodes:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: roazhon13
+        node_range: "roazhon13-[1-8]"
+        count: 8
+        cpu_info: { architecture: x86_64, model: "Intel Xeon Gold 6254", microarchitecture: Cascade Lake-SP, num_cpus: 2, cores_per_cpu: 18, max_frequency_ghz: 3.10 }
+        ram_gib: 384.0
+        storage: [ { label: disk0, capacity_tb: 1.0, type: HDD, primary: true } ]
+        network_interfaces: [ { name: eth0, rate_gbps: 10.0, available_for_experiment: true } ]
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_roazhon13 }
+
+    cluster_roazhon14:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: roazhon14
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2025-04-18"
+        manufacturing_date: "2020-11-19"
+        total_nodes: 4
+
+    roazhon14_nodes:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: roazhon14
+        node_range: "roazhon14-[1-4]"
+        count: 4
+        cpu_info: { architecture: x86_64, model: "Intel Xeon Gold 6254", microarchitecture: Cascade Lake-SP, num_cpus: 2, cores_per_cpu: 18, max_frequency_ghz: 3.10 }
+        ram_gib: 384.0
+        storage:
+          - { label: disk0, capacity_tb: 0.48, type: HDD, primary: true }
+          - { label: disk1, capacity_tb: 0.96, type: SSD }
+        network_interfaces: [ { name: eth0, rate_gbps: 10.0, available_for_experiment: true } ]
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_roazhon14 }
+
+    cluster_roazhon15:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: roazhon15
+        access_condition: abaca
+        oar_queue: abaca
+        date_of_arrival: "2026-02-02"
+        manufacturing_date: "2025-10-08"
+        total_nodes: 1
+
+    roazhon15_node:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: roazhon15-1
+        count: 1
+        cpu_info:
+          architecture: x86_64
+          model: AMD EPYC 9555
+          microarchitecture: Zen 4
+          # Genoa: 64 cores/socket, 2.50 GHz base (boost up to 4.35 GHz)
+          # 2 x 64 = 128 cores per node
+          num_cpus: 2
+          cores_per_cpu: 64
+          max_frequency_ghz: 2.50
+        ram_gib: 1536.0    # 1.5 TiB
+        storage: [ { label: disk0, capacity_tb: 6.4, type: SSD, interface: NVMe, primary: true } ]
+        network_interfaces: [ { name: eth0, rate_gbps: 10.0, available_for_experiment: true } ]
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_roazhon15 }
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # GROUPS
+  # ───────────────────────────────────────────────────────────────────────────
+  groups:
+
+    h100_nodes:
+      type: tosca.groups.Root
+      description: >
+        H100 NVL (PCIe-based, 94 GiB HBM3, 14592 CUDA cores).
+        Note: H100 NVL is PCIe-based (114 SMs) not SXM5 (132 SMs).
+      members: [abacus27_node]
+
+    zen5_nodes:
+      type: tosca.groups.Root
+      description: >
+        AMD EPYC 9135 Zen 5 (abacus29) -- first Zen 5 in the 8-site survey.
+        Zen 5: wider decode front-end, improved AVX-512 throughput,
+        new branch predictor. Turin family (2025).
+      members: [abacus29_node]
+
+    v100_nodes:
+      type: tosca.groups.Root
+      description: Nodes with Nvidia V100 GPUs (Volta, CC 7.0)
+      members: [abacus9_node, abacus12_node, abacus14_node, abacus16_node, abacus28_node, abacus30_nodes]
+
+    a100_nodes:
+      type: tosca.groups.Root
+      description: Nodes with Nvidia A100 GPUs (Ampere, CC 8.0)
+      members: [abacus21_node]
+
+    a40_nodes:
+      type: tosca.groups.Root
+      description: Nodes with Nvidia A40 GPUs (Ampere, CC 8.6)
+      members: [abacus4_node, abacus22_3gpu, abacus22_1gpu, abacus25_nodes]
+
+    l40s_nodes:
+      type: tosca.groups.Root
+      description: Nodes with Nvidia L40S (Ada Lovelace, CC 8.9)
+      members: [abacus26_node, abacus29_node]
+
+    roazhon_series:
+      type: tosca.groups.Root
+      description: >
+        "Roazhon" = Rennes in Breton (Gallo language).
+        15 compute clusters (no GPU), abaca queue.
+        Spans 2012-2025 hardware. Includes roazhon4 (AMD EPYC 7H12,
+        128 cores) and roazhon15 (EPYC 9555 Genoa, 128 cores, 1.5 TiB RAM).
+      members:
+        - roazhon1_node
+        - roazhon2_node
+        - roazhon3_node
+        - roazhon4_node
+        - roazhon5_nodes
+        - roazhon6_nodes
+        - roazhon7_nodes
+        - roazhon8_nodes
+        - roazhon9_nodes
+        - roazhon10_nodes
+        - roazhon11_nodes
+        - roazhon12_nodes
+        - roazhon13_nodes
+        - roazhon14_nodes
+        - roazhon15_node
+
+    default_queue_nodes:
+      type: tosca.groups.Root
+      description: "Default queue (no restrictions): paradoxe + parasilo (89 nodes)"
+      members: [paradoxe_group_a, paradoxe_group_b, parasilo_main]
+
+  outputs:
+
+    site_summary:
+      description: Grid'5000 Rennes site summary
+      value:
+        site:              { get_property: [site_rennes, site_name] }
+        frontend:          { get_property: [site_rennes, frontend_hostname] }
+        total_nodes:       { get_property: [site_rennes, total_nodes] }
+        total_clusters:    41
+        total_cpu_cores:   { get_property: [site_rennes, total_cpu_cores] }
+        total_gpu_count:   { get_property: [site_rennes, total_gpu_count] }
+        total_gpu_cores:   { get_property: [site_rennes, total_gpu_cores] }
+        total_ram_tib:     { get_property: [site_rennes, total_ram_tib] }
+        tflops_cpu:        { get_property: [site_rennes, tflops_cpu] }
+
+    highlights:
+      description: Rennes highlights in the 8-site survey
+      value:
+        most_clusters:     "41 clusters -- record in G5K 8-site survey"
+        zen5_first:        "abacus29: AMD EPYC 9135 Zen 5 -- first Zen 5 in survey"
+        breton_identity:   "roazhon series named after Breton word for Rennes"
+        unix_epoch_node:   "abacus30: manufacturing_date=1970-01-01 (Unix epoch placeholder)"
+        roazhon15:         "EPYC 9555 Genoa (128 cores, 1.5 TiB RAM, 6.4 TB NVMe)"
+        gpu_core_note: >
+          H100 NVL (abacus27): 14592 cores/GPU (PCIe, 114 SMs),
+          NOT 16896 (SXM5, 132 SMs). Verified against G5K total 718592.
+
+    gpu_verification:
+      description: GPU count verification
+      value:
+        total_gpus:   96
+        total_cores:  718592
+        h100_nlv_note: "4 x 14592 = 58368 (PCIe variant, not SXM5)"
+        status:       "OK -- verified against G5K reference API"

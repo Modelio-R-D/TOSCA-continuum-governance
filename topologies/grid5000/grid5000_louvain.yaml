@@ -1,0 +1,421 @@
+tosca_definitions_version: tosca_simple_yaml_1_3
+
+description: >
+  TOSCA topology for the Grid'5000 Louvain site.
+  Source: https://www.grid5000.fr/w/Louvain:Hardware
+  Last API update: 2026-08-19 (commit 8a13e0bd5e)
+  Summary: 1 cluster (spirou), 8 nodes, 384 CPU cores,
+           2.0 TiB RAM, 35.85 TB storage (SSD + HDD), 41.8 TFLOPS CPU.
+           No GPUs. Standout feature: dual 100 Gbps SR-IOV per node.
+
+metadata:
+  template_name:    Grid5000-Louvain
+  template_version: "1.0.0"
+  template_author:  Generated from Grid5000 Reference API
+  site:             Louvain
+  source_url:       https://www.grid5000.fr/w/Louvain:Hardware
+  created:          "2026-08-31"
+  # Notable: smallest of the three sites analyzed (Nantes/Luxembourg/Louvain).
+  # No GPU accelerators. Best network bandwidth per node: 2x 100 Gbps SR-IOV.
+  # Manufacturing date 2024-01-01 is likely an API placeholder.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DATA TYPES
+# ─────────────────────────────────────────────────────────────────────────────
+data_types:
+
+  g5k.datatypes.CPUInfo:
+    derived_from: tosca.datatypes.Root
+    properties:
+      architecture:
+        type: string
+        description: "ISA: x86_64, aarch64, ..."
+        required: true
+      model:
+        type: string
+        required: false
+      microarchitecture:
+        type: string
+        description: "e.g. Ice Lake-SP, Broadwell, Emerald Rapids"
+        required: false
+      num_cpus:
+        type: integer
+        description: Number of CPU sockets per node
+        required: true
+      cores_per_cpu:
+        type: integer
+        required: true
+      max_frequency_ghz:
+        type: float
+        required: false
+
+  g5k.datatypes.StorageDisk:
+    derived_from: tosca.datatypes.Root
+    properties:
+      label:
+        type: string
+        required: true
+      capacity_tb:
+        type: float
+        required: true
+      type:
+        type: string
+        description: "SSD, HDD, NVMe"
+        required: true
+      interface:
+        type: string
+        description: "SATA, SAS, NVMe"
+        required: false
+      model:
+        type: string
+        required: false
+      primary:
+        type: boolean
+        default: false
+
+  g5k.datatypes.NetworkInterface:
+    derived_from: tosca.datatypes.Root
+    properties:
+      name:
+        type: string
+        required: true
+      rate_gbps:
+        type: float
+        required: true
+      model:
+        type: string
+        required: false
+      driver:
+        type: string
+        required: false
+      sriov_enabled:
+        type: boolean
+        default: false
+      available_for_experiment:
+        type: boolean
+        default: true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NODE TYPES
+# ─────────────────────────────────────────────────────────────────────────────
+node_types:
+
+  g5k.nodes.Site:
+    derived_from: tosca.nodes.Root
+    properties:
+      site_name:
+        type: string
+        required: true
+      location:
+        type: string
+        required: false
+      frontend_hostname:
+        type: string
+        required: false
+      total_nodes:
+        type: integer
+        required: false
+      total_cpu_cores:
+        type: integer
+        required: false
+      total_gpu_count:
+        type: integer
+        default: 0
+      total_ram_tib:
+        type: float
+        required: false
+      total_storage_tb:
+        type: float
+        required: false
+      hdd_nodes:
+        type: integer
+        description: Number of nodes with HDD storage
+        default: 0
+      tflops_cpu:
+        type: float
+        required: false
+    requirements:
+      - clusters:
+          capability: tosca.capabilities.Node
+          relationship: tosca.relationships.HostedOn
+          occurrences: [1, UNBOUNDED]
+
+  g5k.nodes.Cluster:
+    derived_from: tosca.nodes.Root
+    properties:
+      cluster_name:
+        type: string
+        required: true
+      access_condition:
+        type: string
+        default: default
+      oar_queue:
+        type: string
+        default: default
+      date_of_arrival:
+        type: string
+        required: false
+      manufacturing_date:
+        type: string
+        required: false
+      total_nodes:
+        type: integer
+        required: false
+      total_cores:
+        type: integer
+        required: false
+    requirements:
+      - nodes:
+          capability: tosca.capabilities.Compute
+          relationship: tosca.relationships.HostedOn
+          occurrences: [1, UNBOUNDED]
+
+  g5k.nodes.ComputeNode:
+    derived_from: tosca.nodes.Compute
+    properties:
+      node_name:
+        type: string
+        required: true
+      node_range:
+        type: string
+        required: false
+      count:
+        type: integer
+        required: true
+      hw_model:
+        type: string
+        required: false
+      manufacturing_date:
+        type: string
+        required: false
+      cpu_info:
+        type: g5k.datatypes.CPUInfo
+        required: true
+      ram_gib:
+        type: float
+        required: true
+      storage:
+        type: list
+        entry_schema:
+          type: g5k.datatypes.StorageDisk
+        required: false
+      network_interfaces:
+        type: list
+        entry_schema:
+          type: g5k.datatypes.NetworkInterface
+        required: false
+      supported_image_platforms:
+        type: list
+        entry_schema:
+          type: string
+        default: [linux/amd64]
+    capabilities:
+      host:
+        type: tosca.capabilities.Compute
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TOPOLOGY TEMPLATE
+# ─────────────────────────────────────────────────────────────────────────────
+topology_template:
+
+  description: >
+    Grid'5000 Louvain site: single cluster spirou, 8 nodes,
+    Intel Xeon Gold 5318Y (Ice Lake-SP), 256 GiB RAM,
+    dual 100 Gbps SR-IOV (Mellanox ConnectX-6 Dx),
+    mixed SSD + HDD storage. No GPU accelerators.
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # INPUTS
+  # ───────────────────────────────────────────────────────────────────────────
+  inputs:
+    oar_queue:
+      type: string
+      default: default
+      description: OAR scheduler queue for job submission
+      constraints:
+        - valid_values: [default, production, besteffort]
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # NODE TEMPLATES
+  # ───────────────────────────────────────────────────────────────────────────
+  node_templates:
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # SITE: Louvain
+    # ═══════════════════════════════════════════════════════════════════════
+    site_louvain:
+      type: g5k.nodes.Site
+      properties:
+        site_name: Louvain
+        location: Louvain-la-Neuve, Belgium
+        frontend_hostname: flouvain
+        total_nodes: 8
+        total_cpu_cores: 384
+        total_gpu_count: 0
+        total_ram_tib: 2.0
+        total_storage_tb: 35.85
+        hdd_nodes: 8            # all nodes have 1x HDD + 1x SSD
+        tflops_cpu: 41.8
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # CLUSTER: spirou
+    # 8 nodes — Intel Xeon Gold 5318Y (Ice Lake-SP) — 256 GiB
+    # 480 GB SSD + 4.0 TB HDD — 2x 100 Gbps SR-IOV (ConnectX-6 Dx)
+    # Default queue, no GPU, no exotic access required
+    # ═══════════════════════════════════════════════════════════════════════
+    cluster_spirou:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name: spirou
+        access_condition: default
+        oar_queue: default
+        date_of_arrival: "2024-10-02"
+        manufacturing_date: "2024-01-01"
+        # Note: 2024-01-01 is likely an API placeholder for "manufactured in 2024"
+        # rather than a precise date.
+        total_nodes: 8
+        total_cores: 384      # 8 nodes x 2 CPUs x 24 cores
+      requirements:
+        - nodes:
+            node: site_louvain
+
+    # --- spirou: all 8 nodes (uniform configuration) ---
+    spirou_nodes:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name: spirou
+        node_range: "spirou-[1-8]"
+        count: 8
+        hw_model: Lenovo ThinkSystem SR630 V2
+        manufacturing_date: "2024-01-01"
+        cpu_info:
+          architecture: x86_64
+          model: Intel Xeon Gold 5318Y
+          microarchitecture: Ice Lake-SP
+          num_cpus: 2
+          cores_per_cpu: 24
+          max_frequency_ghz: 2.10   # base; boost to 3.40 GHz
+        ram_gib: 256.0
+        storage:
+          - label: disk0
+            capacity_tb: 0.48
+            type: SSD
+            interface: SATA
+            model: Lenovo SSDSC2KG480GZL
+            primary: true
+          - label: disk1
+            capacity_tb: 4.0
+            type: HDD
+            interface: SATA
+            model: Lenovo ST4000NM000A
+            primary: false
+        network_interfaces:
+          - name: eth0/enp1s0f0np0
+            rate_gbps: 100.0
+            model: Mellanox Technologies MT2892 ConnectX-6 Dx
+            driver: mlx5_core
+            sriov_enabled: true
+            available_for_experiment: true
+          - name: eth1/ens1f1np1
+            rate_gbps: 100.0
+            model: Mellanox Technologies MT2892 ConnectX-6 Dx
+            driver: mlx5_core
+            sriov_enabled: true
+            available_for_experiment: true
+          - name: eth2/ens4f0
+            rate_gbps: 1.0
+            model: Broadcom BCM5719 Gigabit Ethernet
+            driver: tg3
+            sriov_enabled: false
+            available_for_experiment: false
+          - name: eth3/ens4f1
+            rate_gbps: 1.0
+            model: Broadcom BCM5719 Gigabit Ethernet
+            driver: tg3
+            sriov_enabled: false
+            available_for_experiment: false
+          - name: eth4/ens4f2
+            rate_gbps: 1.0
+            model: Broadcom BCM5719 Gigabit Ethernet
+            driver: tg3
+            sriov_enabled: false
+            available_for_experiment: false
+          - name: eth5/ens4f3
+            rate_gbps: 1.0
+            model: Broadcom BCM5719 Gigabit Ethernet
+            driver: tg3
+            sriov_enabled: false
+            available_for_experiment: false
+        supported_image_platforms:
+          - linux/amd64
+      capabilities:
+        host:
+          properties:
+            num_cpus: 48
+            cpu_frequency: 2100 MHz
+            mem_size: 256 GiB
+      requirements:
+        - host:
+            node: cluster_spirou
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # GROUPS
+  # ───────────────────────────────────────────────────────────────────────────
+  groups:
+
+    high_bandwidth_nodes:
+      type: tosca.groups.Root
+      description: >
+        Nodes with dual 100 Gbps SR-IOV (ConnectX-6 Dx).
+        Total available bandwidth per node: 200 Gbps.
+        Best network-to-compute ratio of the three sites analyzed.
+      members:
+        - spirou_nodes
+
+    mixed_storage_nodes:
+      type: tosca.groups.Root
+      description: Nodes with both SSD (OS/fast scratch) and HDD (bulk data)
+      members:
+        - spirou_nodes
+
+    default_queue_nodes:
+      type: tosca.groups.Root
+      description: All Louvain nodes available in default OAR queue
+      members:
+        - spirou_nodes
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # OUTPUTS
+  # ───────────────────────────────────────────────────────────────────────────
+  outputs:
+
+    site_summary:
+      description: Grid'5000 Louvain site summary
+      value:
+        site:             { get_property: [site_louvain, site_name] }
+        frontend:         { get_property: [site_louvain, frontend_hostname] }
+        total_nodes:      { get_property: [site_louvain, total_nodes] }
+        total_cpu_cores:  { get_property: [site_louvain, total_cpu_cores] }
+        total_gpu_count:  { get_property: [site_louvain, total_gpu_count] }
+        total_ram_tib:    { get_property: [site_louvain, total_ram_tib] }
+        total_storage_tb: { get_property: [site_louvain, total_storage_tb] }
+        tflops_cpu:       { get_property: [site_louvain, tflops_cpu] }
+
+    cluster_spirou_summary:
+      description: spirou cluster — the only cluster at Louvain
+      value:
+        cluster:          spirou
+        nodes:            8
+        cores_per_node:   48        # 2x Xeon Gold 5318Y = 2 x 24 cores
+        ram_gib:          256
+        storage_primary:  "480 GB SSD SATA (OS + scratch)"
+        storage_bulk:     "4.0 TB HDD SATA (data)"
+        network:          "2x 100 Gbps SR-IOV (Mellanox ConnectX-6 Dx)"
+        aggregate_bw_per_node_gbps: 200
+        gpu:              none
+        access:           default
+        standout_feature: >
+          Dual 100 Gbps SR-IOV per node — highest network bandwidth
+          per node of the Nantes/Luxembourg/Louvain trio.
+          Ideal for network-intensive distributed experiments,
+          MPI applications, and storage-network benchmarks.

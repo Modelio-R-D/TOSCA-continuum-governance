@@ -1,0 +1,505 @@
+tosca_definitions_version: tosca_simple_yaml_1_3
+
+description: >
+  TOSCA topology for the Grid'5000 Strasbourg site.
+  Source: https://www.grid5000.fr/w/Strasbourg:Hardware
+  Last API update: 2026-02-26 (commit 82ff639283)
+  Summary: 3 clusters, 19 nodes, 356 CPU cores, 0 GPUs,
+           5.07 TiB RAM, 82.77 TB storage, 35.7 TFLOPS.
+  Two queues: default (fleckenstein, 10 nodes) +
+              testing (engelbourg + ramstein, 9 nodes).
+  ARCHITECTURAL UNIQUENESS: Strasbourg is the ONLY G5K site
+  whose "testing" clusters are programmable P4 SWITCHES,
+  not traditional compute nodes:
+    - engelbourg: 8x P4 programmable switches (Switch P4 hardware)
+    - ramstein:   1x AS9516 spine switch chassis (128-port)
+  This makes Strasbourg a dedicated SDN/P4 research testbed,
+  complemented by fleckenstein (10 servers with 6x25G+100G per node)
+  designed to connect to the P4 switch fabric.
+  Naming theme: castles and fortresses of Alsace
+    - fleckenstein: Chateau du Fleckenstein (Lembach, Vosges du Nord)
+    - engelbourg:   Chateau Engelbourg (Thann) aka "l'Oeil de la Sorciere"
+    - ramstein:     Chateau de Ramstein (Bas-Rhin)
+
+metadata:
+  template_name:    Grid5000-Strasbourg
+  template_version: "1.0.0"
+  template_author:  Generated from Grid5000 Reference API
+  site:             Strasbourg
+  source_url:       https://www.grid5000.fr/w/Strasbourg:Hardware
+  created:          "2026-09-15"
+
+data_types:
+
+  g5k.datatypes.CPUInfo:
+    derived_from: tosca.datatypes.Root
+    properties:
+      architecture:      { type: string, required: true }
+      model:             { type: string, required: false }
+      microarchitecture: { type: string, required: false }
+      num_cpus:          { type: integer, required: true }
+      cores_per_cpu:     { type: integer, required: true }
+      max_frequency_ghz: { type: float, required: false }
+
+  g5k.datatypes.StorageDisk:
+    derived_from: tosca.datatypes.Root
+    properties:
+      label:       { type: string, required: true }
+      capacity_tb: { type: float, required: true }
+      type:        { type: string, required: true }
+      interface:   { type: string, required: false }
+      model:       { type: string, required: false }
+      primary:     { type: boolean, default: false }
+
+  g5k.datatypes.NetworkInterface:
+    derived_from: tosca.datatypes.Root
+    properties:
+      name:                     { type: string, required: true }
+      rate_gbps:                { type: float, required: true }
+      model:                    { type: string, required: false }
+      driver:                   { type: string, required: false }
+      sriov_enabled:            { type: boolean, default: false }
+      available_for_experiment: { type: boolean, default: true }
+      notes:                    { type: string, required: false }
+
+  g5k.datatypes.P4SwitchInfo:
+    derived_from: tosca.datatypes.Root
+    description: >
+      Programmable P4 switch metadata.
+      P4 (Programming Protocol-independent Packet Processors) allows
+      custom packet processing pipelines defined in the P4 language,
+      running on the switch ASIC rather than in software.
+    properties:
+      switch_model:         { type: string, required: true }
+      vendor:               { type: string, required: false }
+      switch_ports:         { type: integer, required: false }
+      port_speed_gbps:      { type: float, required: false }
+      p4_target:            { type: string, required: false }
+      management_cpu_model: { type: string, required: false }
+
+node_types:
+
+  g5k.nodes.Site:
+    derived_from: tosca.nodes.Root
+    properties:
+      site_name:         { type: string, required: true }
+      location:          { type: string, required: false }
+      frontend_hostname: { type: string, required: false }
+      total_nodes:       { type: integer, required: false }
+      total_cpu_cores:   { type: integer, required: false }
+      total_ram_tib:     { type: float, required: false }
+      total_storage_tb:  { type: float, required: false }
+      tflops_cpu:        { type: float, required: false }
+      research_focus:    { type: string, required: false }
+
+  g5k.nodes.Cluster:
+    derived_from: tosca.nodes.Root
+    properties:
+      cluster_name:       { type: string, required: true }
+      access_condition:   { type: string, default: default }
+      oar_queue:          { type: string, default: default }
+      date_of_arrival:    { type: string, required: false }
+      manufacturing_date: { type: string, required: false }
+      total_nodes:        { type: integer, required: false }
+      total_cores:        { type: integer, required: false }
+
+  g5k.nodes.ComputeNode:
+    derived_from: tosca.nodes.Compute
+    properties:
+      node_name:          { type: string, required: true }
+      node_range:         { type: string, required: false }
+      count:              { type: integer, required: true }
+      hw_model:           { type: string, required: false }
+      manufacturing_date: { type: string, required: false }
+      cpu_info:           { type: g5k.datatypes.CPUInfo, required: true }
+      ram_gib:            { type: float, required: true }
+      storage:            { type: list, entry_schema: { type: g5k.datatypes.StorageDisk }, required: false }
+      network_interfaces: { type: list, entry_schema: { type: g5k.datatypes.NetworkInterface }, required: false }
+      supported_image_platforms: { type: list, entry_schema: { type: string }, required: false }
+
+  g5k.nodes.P4SwitchNode:
+    derived_from: tosca.nodes.Root
+    description: >
+      A programmable P4 switch treated as a G5K "node".
+      The CPU (Intel Pentium D1517) is the switch management/control plane.
+      The data plane runs on the switch ASIC, programmed in P4.
+    properties:
+      node_name:          { type: string, required: true }
+      node_range:         { type: string, required: false }
+      count:              { type: integer, required: true }
+      hw_model:           { type: string, required: false }
+      manufacturing_date: { type: string, required: false }
+      switch_info:        { type: g5k.datatypes.P4SwitchInfo, required: true }
+      management_cpu:     { type: g5k.datatypes.CPUInfo, required: true }
+      management_ram_gib: { type: float, required: true }
+      storage:            { type: list, entry_schema: { type: g5k.datatypes.StorageDisk }, required: false }
+      management_network: { type: list, entry_schema: { type: g5k.datatypes.NetworkInterface }, required: false }
+      oar_queue:          { type: string, required: false }
+      access_condition:   { type: string, required: false }
+      supported_image_platforms: { type: list, entry_schema: { type: string }, required: false }
+
+topology_template:
+
+  node_templates:
+
+    site_strasbourg:
+      type: g5k.nodes.Site
+      properties:
+        site_name:         Strasbourg
+        location:          Strasbourg, France (Alsace)
+        frontend_hostname: fstrasbourg
+        total_nodes:       19
+        total_cpu_cores:   356
+        total_ram_tib:     5.07
+        total_storage_tb:  82.77
+        tflops_cpu:        35.7
+        research_focus: >
+          Software-Defined Networking and P4 programmable data planes.
+          Unique in Grid5000: a dedicated SDN testbed combining
+          compute servers with 6 network interfaces (fleckenstein)
+          and programmable P4 switches (engelbourg, ramstein).
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # DEFAULT QUEUE: fleckenstein
+    # 10 servers, Ice Lake-SP, 6x25G + 100G per node
+    # Designed for connection to the P4 switch fabric
+    # ═══════════════════════════════════════════════════════════════════════
+    cluster_fleckenstein:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name:       fleckenstein
+        access_condition:   default
+        oar_queue:          default
+        date_of_arrival:    "2023-08-01"
+        manufacturing_date: "2022-12-14"
+        total_nodes:        10
+        total_cores:        320
+
+    fleckenstein_nodes:
+      type: g5k.nodes.ComputeNode
+      properties:
+        node_name:          fleckenstein
+        node_range:         "fleckenstein-[1-10]"
+        count:              10
+        hw_model:           HPE ProLiant DL360 Gen10+
+        manufacturing_date: "2022-12-14"
+        cpu_info:
+          architecture:      x86_64
+          model:             Intel Xeon Silver 4314
+          microarchitecture: Ice Lake-SP
+          num_cpus:          2
+          cores_per_cpu:     16
+          max_frequency_ghz: 2.40
+        ram_gib: 512.0
+        storage:
+          - label: disk0
+            capacity_tb: 0.96
+            type: SSD
+            interface: SAS
+            model: HPE VO000960RZWUQ
+            primary: true
+          - label: disk1
+            capacity_tb: 2.4
+            type: HDD
+            interface: SAS
+            model: HPE EG002400JXLWC
+          - label: disk2
+            capacity_tb: 2.4
+            type: HDD
+            interface: SAS
+            model: HPE EG002400JXLWC
+          - label: disk3
+            capacity_tb: 2.4
+            type: HDD
+            interface: SAS
+            model: HPE EG002400JWJNN
+        network_interfaces:
+          # 6 x Intel E810 SFP ports (25 Gbps each)
+          # Only eth0 available for experiment; eth1-5 reserved for P4 switch fabric
+          - name: eth0/ens10f0
+            rate_gbps: 25.0
+            model: Intel Ethernet Controller E810-XXV for SFP
+            driver: ice
+            sriov_enabled: true
+            available_for_experiment: true
+            notes: "Available for experiment; no KaVLAN"
+          - name: eth1/ens10f1
+            rate_gbps: 25.0
+            model: Intel Ethernet Controller E810-XXV for SFP
+            driver: ice
+            available_for_experiment: false
+            notes: "Reserved for P4 switch fabric interconnect"
+          - name: eth2/ens1f0
+            rate_gbps: 25.0
+            model: Intel Ethernet Controller E810-C for SFP
+            driver: ice
+            available_for_experiment: false
+          - name: eth3/ens1f1
+            rate_gbps: 25.0
+            model: Intel Ethernet Controller E810-C for SFP
+            driver: ice
+            available_for_experiment: false
+          - name: eth4/ens1f2
+            rate_gbps: 25.0
+            model: Intel Ethernet Controller E810-C for SFP
+            driver: ice
+            available_for_experiment: false
+          - name: eth5/ens1f3
+            rate_gbps: 25.0
+            model: Intel Ethernet Controller E810-C for SFP
+            driver: ice
+            available_for_experiment: false
+          # 100 Gbps Mellanox ConnectX-6 Dx (SR-IOV)
+          - name: eth6/ens2f0np0
+            rate_gbps: 100.0
+            model: Mellanox MT2892 ConnectX-6 Dx
+            driver: mlx5_core
+            sriov_enabled: true
+            available_for_experiment: true
+            notes: "Available for experiment; no KaVLAN"
+          - name: eth7/ens2f1np1
+            rate_gbps: 100.0
+            model: Mellanox MT2892 ConnectX-6 Dx
+            driver: mlx5_core
+            available_for_experiment: false
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_fleckenstein }
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # TESTING QUEUE: engelbourg
+    # 8 x P4 programmable switches (not traditional compute nodes!)
+    # hw_model "Switch P4" identifies these as ASIC switch hardware.
+    # The Intel Pentium D1517 is the switch management CPU (control plane).
+    # The data plane runs on the switch ASIC, programmed in P4 language.
+    # Unique in the entire G5K infrastructure.
+    # ═══════════════════════════════════════════════════════════════════════
+    cluster_engelbourg:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name:       engelbourg
+        access_condition:   exotic
+        oar_queue:          testing
+        date_of_arrival:    "2025-04-14"
+        manufacturing_date: "2022-04-20"
+        total_nodes:        8
+        total_cores:        32
+
+    engelbourg_switches:
+      type: g5k.nodes.P4SwitchNode
+      properties:
+        node_name:          engelbourg
+        node_range:         "engelbourg-[1-8]"
+        count:              8
+        hw_model:           Switch P4
+        manufacturing_date: "2022-04-20"
+        oar_queue:          testing
+        access_condition:   exotic
+        switch_info:
+          switch_model:         Switch P4
+          vendor:               Unknown (P4-capable ASIC switch)
+          p4_target:            >
+            P4 programmable data plane ASIC.
+            Experiments write custom packet processing pipelines
+            in P4, compiled to the switch ASIC's instruction set.
+          management_cpu_model: Intel Pentium D1517
+        management_cpu:
+          architecture:      x86_64
+          model:             Intel Pentium D1517
+          microarchitecture: Broadwell
+          num_cpus:          1
+          cores_per_cpu:     4
+          max_frequency_ghz: 1.60
+        management_ram_gib: 8.0
+        storage:
+          - label: disk0
+            capacity_tb: 0.128
+            type: SSD
+            interface: SATA
+            model: Innodisk M.2 (S80) 3ME4
+            primary: true
+        management_network:
+          - name: eth0/enp2s0
+            rate_gbps: 1.0
+            model: Intel I210 Gigabit Network Connection
+            driver: igb
+            available_for_experiment: true
+            notes: "Management port; no KaVLAN"
+          - name: eth1/enp4s0f0
+            rate_gbps: 10.0
+            model: Intel Ethernet Connection X552 10 GbE Backplane
+            driver: ixgbe
+            available_for_experiment: false
+            notes: "Switch backplane (data plane)"
+          - name: eth2/enp4s0f1
+            rate_gbps: 10.0
+            model: Intel Ethernet Connection X552 10 GbE Backplane
+            driver: ixgbe
+            available_for_experiment: false
+          - name: eth3/enx020000000002
+            rate_gbps: 0.1
+            driver: cdc_ether
+            available_for_experiment: false
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_engelbourg }
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # TESTING QUEUE: ramstein
+    # 1 x AS9516 spine switch chassis
+    # Edgecore/Accton AS9516: a large 128-port 100G switch chassis,
+    # used as the spine switch connecting the P4 leaf switches (engelbourg).
+    # Same management CPU as engelbourg (Pentium D1517).
+    # ═══════════════════════════════════════════════════════════════════════
+    cluster_ramstein:
+      type: g5k.nodes.Cluster
+      properties:
+        cluster_name:       ramstein
+        access_condition:   exotic
+        oar_queue:          testing
+        date_of_arrival:    "2025-08-29"
+        manufacturing_date: "2023-05-23"
+        total_nodes:        1
+        total_cores:        4
+
+    ramstein_switch:
+      type: g5k.nodes.P4SwitchNode
+      properties:
+        node_name:          ramstein-1
+        node_range:         "ramstein-1"
+        count:              1
+        hw_model:           AS9516
+        manufacturing_date: "2023-05-23"
+        oar_queue:          testing
+        access_condition:   exotic
+        switch_info:
+          switch_model:     AS9516
+          vendor:           Edgecore Networks / Accton
+          switch_ports:     128
+          port_speed_gbps:  100.0
+          p4_target: >
+            Spine switch for the Strasbourg P4 testbed.
+            AS9516: 128 x QSFP28 100GbE ports. Used to interconnect
+            the 8 P4 leaf switches (engelbourg) and the compute servers
+            (fleckenstein) in a leaf-spine SDN topology.
+          management_cpu_model: Intel Pentium D1517
+        management_cpu:
+          architecture:      x86_64
+          model:             Intel Pentium D1517
+          microarchitecture: Broadwell
+          num_cpus:          1
+          cores_per_cpu:     4
+          max_frequency_ghz: 1.60
+        management_ram_gib: 8.0
+        storage:
+          - label: disk0
+            capacity_tb: 0.128
+            type: SSD
+            interface: SATA
+            model: Innodisk M.2 (S80) 3ME4
+            primary: true
+        management_network:
+          - name: eth0/enp1s0f0np0
+            rate_gbps: 1.0
+            model: Intel I210 Gigabit Network Connection
+            driver: igb
+            available_for_experiment: true
+            notes: "Management port; no KaVLAN"
+          - name: eth1/enp4s0f0
+            rate_gbps: 10.0
+            model: Intel Ethernet Connection X552 10 GbE Backplane
+            driver: ixgbe
+            available_for_experiment: false
+          - name: eth2/enp4s0f1
+            rate_gbps: 10.0
+            model: Intel Ethernet Connection X552 10 GbE Backplane
+            driver: ixgbe
+            available_for_experiment: false
+          - name: eth3/enx020000000002
+            rate_gbps: 0.1
+            driver: cdc_ether
+            available_for_experiment: false
+        supported_image_platforms: [linux/amd64]
+      requirements:
+        - host: { node: cluster_ramstein }
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # GROUPS
+  # ───────────────────────────────────────────────────────────────────────────
+  groups:
+
+    p4_switch_nodes:
+      type: tosca.groups.Root
+      description: >
+        Programmable P4 switch "nodes" -- unique in G5K.
+        engelbourg: 8 leaf switches (P4 data plane ASIC).
+        ramstein: 1 spine switch (AS9516, 128x100G ports).
+        Together they form a leaf-spine SDN topology.
+        Reserved via OAR testing queue with exotic job type.
+      members: [engelbourg_switches, ramstein_switch]
+
+    multi_nic_servers:
+      type: tosca.groups.Root
+      description: >
+        fleckenstein: 10 servers each with 6x25G + 1x100G interfaces.
+        Designed to feed traffic into the P4 switch fabric.
+        5 of the 6x25G ports connect to engelbourg leaf switches;
+        the 100G port connects to the ramstein spine.
+      members: [fleckenstein_nodes]
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # OUTPUTS
+  # ───────────────────────────────────────────────────────────────────────────
+  outputs:
+
+    site_summary:
+      description: Grid'5000 Strasbourg site summary
+      value:
+        site:            { get_property: [site_strasbourg, site_name] }
+        frontend:        { get_property: [site_strasbourg, frontend_hostname] }
+        total_nodes:     { get_property: [site_strasbourg, total_nodes] }
+        total_clusters:  3
+        total_cpu_cores: { get_property: [site_strasbourg, total_cpu_cores] }
+        total_ram_tib:   { get_property: [site_strasbourg, total_ram_tib] }
+        research_focus:  { get_property: [site_strasbourg, research_focus] }
+
+    cpu_verification:
+      description: CPU core count verification
+      value:
+        fleckenstein:  "10 x 2 x 16 = 320 cores"
+        engelbourg:    "8 x 1 x 4 = 32 cores (management CPU)"
+        ramstein:      "1 x 1 x 4 = 4 cores (management CPU)"
+        total:         356
+        status:        "OK -- matches G5K reference API"
+
+    topology_note:
+      description: P4 testbed topology
+      value:
+        leaf_switches:  "engelbourg-[1-8]: 8x P4 programmable leaf switches"
+        spine_switch:   "ramstein-1: AS9516, 128x100G spine"
+        servers:        "fleckenstein-[1-10]: 10x servers, 6x25G + 100G each"
+        architecture: >
+          Leaf-spine SDN testbed. Each fleckenstein server connects
+          5 of its 6x25G ports to different engelbourg leaf switches,
+          enabling experiments with custom P4 packet processing
+          between servers at line rate (25 Gbps per flow).
+          The ramstein AS9516 spine interconnects all leaf switches
+          at 100 Gbps, enabling multi-hop P4 experiments.
+          Unique deployment in Grid5000: the P4 switches are
+          reservable as OAR nodes, allowing experiments that span
+          both compute (fleckenstein) and network (engelbourg/ramstein).
+
+    naming_note:
+      description: Alsatian fortress naming theme
+      value:
+        fleckenstein: >
+          Chateau du Fleckenstein (Lembach, Vosges du Nord regional park).
+          A 12th-century sandstone fortress on a narrow rocky ridge.
+        engelbourg: >
+          Chateau Engelbourg (Thann, Haut-Rhin). Known as 'l'Oeil de la
+          Sorciere' (the Witch's Eye) -- its circular tower collapsed
+          and the remaining ring stands vertically, resembling a giant eye.
+        ramstein: >
+          Chateau de Ramstein (Bas-Rhin), medieval fortress ruins
+          in the northern Vosges. Three Alsatian castles for a
+          testbed at the crossroads of France and Germany.
