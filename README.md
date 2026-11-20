@@ -99,7 +99,7 @@ and enriched CSAR export. Developed by Softeam R&D as part of the
 *TOSCA-Driven Governance of Heterogeneous Computing Continuums:
 Detecting Architectural Risks Before They Become Runtime Failures*
 https://www.opensource-experience.com/fr/programme-2026
-Slides and live demo available in [`/talk`](./talk/).
+ 
 
 Deploying applications on a heterogeneous cloud-fog-edge infrastructure requires topological models that account for layer heterogeneity, resource diversity, and inter-layer quality constraints. TOSCA (Topology and Orchestration Specification for Cloud Applications) provides a vendor-independent formalism for describing such topologies, but its potential for automated architectural analysis remains largely unexplored. In this presentation, we introduce a TOSCA-based governance toolchain composed of two complementary components: (1) a formal TOSCA model described in the Modelio modeling tool for heterogeneous compute nodes, and (2) an automated architectural auditor implementing 21 detection rules across 8 categories.
 
